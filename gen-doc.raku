@@ -230,7 +230,7 @@ multi MAIN (+@pod-files, Str :m(:module($module)), Str() :$base = $*CWD, Bool :v
     my @psorted = @pod-files.race.map( { [$_, .IO.s] } ).sort({ @^b[1] cmp @^a[1] }).map({.[0]});
     gen-doc(@psorted, :$module, :$force, :$base, :into{ :$md, :$html });
 }
-multi MAIN (Str:D $pod-file, Str:D :m(:module($module))!, Str() :$base = $*CWD, Str :o(:output($output))?,
+multi MAIN (Str:D $pod-file, Str :m(:module($module)), Str() :$base = $*CWD, Str :o(:output($output))?,
             Bool :v(:verbose($verbose)) = False, Bool :f(:force($force)) = False,
             Bool :$md = False, Bool :$html = False ) {
     $VERBOSE = $verbose;
