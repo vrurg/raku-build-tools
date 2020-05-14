@@ -49,7 +49,7 @@ grammar MyPOD {
 
     proto token pod-link {*}
     multi token pod-link:sym<mod-url> {
-        'L<' <link-text> '|' <link-url> '>'
+        'L<' <link-module> '|' <link-url> '>'
     }
     multi token pod-link:sym<mod-only> {
         'L<' <link-module> '>'
@@ -59,7 +59,7 @@ grammar MyPOD {
     }
 
     token link-text {
-        .+? <?before '|'>
+        .+? <?before [ '|' | '>' ]>
     }
 
     token link-module {
@@ -87,22 +87,23 @@ class MyPOD-Actions {
     has Bool $.replaced is rw = False;
     has $!ver-str = ~$MOD-VERSION;
 
-    method version ($m) {
-        $.replaced ||= Version.new( $m ) ≠ $MOD-VERSION;
-        $m.make( $!ver-str );
+    method version ($/) {
+        $.replaced ||= Version.new( ~$/ ) ≠ $MOD-VERSION;
+        make $!ver-str;
     }
 
-    method pod-link:sym<mod-only> ( $m ) {
-        my $link-mod = $m<link-module>.made;
-        my $link-path = $link-mod.subst('::', '/', :g);
-        $m.make(
-            'L<' ~ $m<link-module>
-                ~ '|' ~ $URL ~ '/blob/v'
-                ~ $!ver-str ~ '/docs/md/'
-                ~ $link-path ~ '.md'
-                ~ '>'
-        );
+    method pod-link:sym<mod-only> ( $/ ) {
+        my $link-mod = $<link-module>.made;
+        my $link-url;
+        if $<link-module><link-module-name>.Str.starts-with($MAIN-MOD) {
+            my $link-path = $link-mod.subst('::', '/', :g);
+            $link-url = $URL ~ '/blob/v' ~ $!ver-str ~ '/docs/md/' ~ $link-path ~ '.md';
+        }
+        else {
+            $link-url = 'https://modules.raku.org/dist/' ~ $<link-module><link-module-name>;
+        }
         $.replaced = True;
+        make 'L<' ~ $<link-module> ~ '|' ~ $link-url ~ '>';
     }
 
     method pod-link:sym<raku-type>($/) {
@@ -224,13 +225,13 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :$force, :%into) {
     $wm.shutdown;
 }
 
-multi MAIN (+@pod-files, Str :m(:module($module)), Str() :$base = $*CWD, Bool :v(:verbose($verbose)) = False, Bool :f(:force($force)) = False,
+multi MAIN (+@pod-files, Str :m(:module($module))!, Str() :$base = $*CWD, Bool :v(:verbose($verbose)) = False, Bool :f(:force($force)) = False,
             Bool :$md = False, Bool :$html = False) {
     $VERBOSE = $verbose;
     my @psorted = @pod-files.race.map( { [$_, .IO.s] } ).sort({ @^b[1] cmp @^a[1] }).map({.[0]});
     gen-doc(@psorted, :$module, :$force, :$base, :into{ :$md, :$html });
 }
-multi MAIN (Str:D $pod-file, Str :m(:module($module)), Str() :$base = $*CWD, Str :o(:output($output))?,
+multi MAIN (Str:D $pod-file, Str :m(:module($module))!, Str() :$base = $*CWD, Str :o(:output($output))?,
             Bool :v(:verbose($verbose)) = False, Bool :f(:force($force)) = False,
             Bool :$md = False, Bool :$html = False ) {
     $VERBOSE = $verbose;
