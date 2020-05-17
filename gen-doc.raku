@@ -33,9 +33,9 @@ grammar MyPOD {
 
     token pod {
         :my $pod-kw;
-        <pod-start($pod-kw )>
-        [|| <pod-link> || <pod-text>]+
-        <pod-end($pod-kw )>
+        <pod-start($pod-kw)>
+        [<pod-link> || <pod-text>]+
+        <pod-end($pod-kw)>
     }
 
     token pod-text {
@@ -57,7 +57,8 @@ grammar MyPOD {
         'C<' <link-module-name> '>' | <link-module-name>
     }
     token link-module-name {
-        [<.alnum>+] ** 1..* % '::'
+        $<lmn-type>=[ [<.alnum>+] ** 1..* % '::' ]
+        $<lmn-smile>=[ ':D' || ':U' ]?
     }
 
     token link-url {
@@ -84,13 +85,14 @@ class MyPOD-Actions {
 
     method pod-link:sym<mod-only>($/) {
         my $link-mod = $<link-module>.made;
+        my $link-mod-text = ~$<link-module>;
         my $link-url;
         if $<link-module><link-module-name>.Str.starts-with($MAIN-MOD) {
             my $link-path = $link-mod.subst('::', '/', :g);
             $link-url = $URL ~ '/blob/v' ~ $!ver-str ~ '/docs/md/' ~ $link-path ~ '.md';
         }
         else {
-            $link-url = 'https://modules.raku.org/dist/' ~ $<link-module><link-module-name>;
+            $link-url = 'https://modules.raku.org/dist/' ~ $<link-module><link-module-name><lmn-type>;
         }
         $.replaced = True;
         make 'L<' ~ $<link-module> ~ '|' ~ $link-url ~ '>';
@@ -102,12 +104,12 @@ class MyPOD-Actions {
 
     method pod-link:sym<raku-type>($/) {
         my $link-mod = $<link-module>.made;
-        make 'L<C<' ~ $link-mod ~ '>|https://docs.raku.org/type/' ~ $link-mod ~ '>';
+        make 'L<C<' ~ $<link-module><link-module-name> ~ '>|https://docs.raku.org/type/' ~ $link-mod ~ '>';
         $.replaced = True;
     }
 
     method link-module($/) {
-        make $<link-module-name>
+        make ~$<link-module-name><lmn-type>
     }
 
     method link-url ($/) {
