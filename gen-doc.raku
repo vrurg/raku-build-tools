@@ -164,9 +164,10 @@ sub make-dest($src is copy, $base is copy, $fmt, :$output) {
 
 sub invoke-raku($src, $dst, $fmt) {
     my $dfh = $dst.IO.open(:w);
+    $dfh.exception.rethrow unless $dfh;
     my @cmd = ~$*EXECUTABLE, '-Ilib', '--doc=' ~ $fmt, $src;
     say @cmd.join(" "), ' >', ~$dst if $VERBOSE;
-    my $p = run |@cmd, :out($dst.IO.open(:w));
+    my $p = run |@cmd, :out($dfh);
 }
 
 proto gen-fmt(Str:D, $, $, *%) {*}
