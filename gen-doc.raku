@@ -163,6 +163,10 @@ sub make-dest($src is copy, $base is copy, $fmt, :$output) {
 }
 
 sub invoke-raku($src, $dst, $fmt) {
+    my $ddir = $dst.IO.parent(1);
+    unless $ddir.d {
+        $ddir.mkdir orelse .exception.throw;
+    }
     my $dfh = $dst.IO.open(:w);
     $dfh.exception.rethrow unless $dfh;
     my @cmd = ~$*EXECUTABLE, '-Ilib', '--doc=' ~ $fmt, $src;
