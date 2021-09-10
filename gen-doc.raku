@@ -2,10 +2,12 @@
 # use Grammar::Tracer;
 use lib 'lib';
 use Async::Workers;
+use URI;
 
 my $VERBOSE = False;
 my $MAIN-MOD = %*ENV<MAIN_MOD>;
 my $MODULE := Mu;
+my $BASE;
 my $MOD-VERSION;
 my $FORCE = False;
 my $URL;
@@ -65,8 +67,12 @@ grammar MyPOD {
         $<lmn-smile>=[ ':D' || ':U' ]?
     }
 
-    token link-url {
+    proto token link-url {*}
+    multi token link-url:sym<full> {
         $<link-prefix>=['https://github.com/' <.url-char>+? '/blob/v'] <version> $<link-suffix>=['/' <.url-char>+]
+    }
+    multi token link-url:sym<rel> {
+        <!before http s? '://'> && $<link>=[<.url-char>+]
     }
 
     token url-char {
@@ -81,6 +87,12 @@ grammar MyPOD {
 class MyPOD-Actions {
     has Bool $.replaced is rw = False;
     has $!ver-str = ~$MOD-VERSION;
+    has $.pod-file;
+    has $.dest-file-dir;
+
+    submethod TWEAK {
+        $!dest-file-dir //= IO::Spec::Unix.catfile($BASE, make-dest($!pod-file, $BASE, 'md')).IO.parent(1);
+    }
 
     method version($/) {
         $.replaced ||= Version.new(~$/) ≠ $MOD-VERSION;
@@ -92,8 +104,8 @@ class MyPOD-Actions {
         my $link-mod-text = ~$<link-module>;
         my $link-url;
         if $<link-module><link-module-name>.Str.starts-with($MAIN-MOD) {
-            my $link-path = $link-mod.subst('::', '/', :g);
-            $link-url = $URL ~ '/blob/v' ~ $!ver-str ~ '/docs/md/' ~ $link-path ~ '.md';
+            my $link-path = IO::Spec::Unix.catfile('docs', 'md', |$link-mod.split('::')) ~ '.md';
+            $link-url = ~$link-path.IO.relative($!dest-file-dir);
         }
         else {
             $link-url = 'https://modules.raku.org/dist/' ~ $<link-module><link-module-name><lmn-type>;
@@ -116,8 +128,13 @@ class MyPOD-Actions {
         make ~$<link-module-name><lmn-type>
     }
 
-    method link-url ($/) {
-        make $<link-prefix> ~ $<version>.made ~ $<link-suffix>;
+    method link-url:sym<full> ($/) {
+        make IO::Spec::Unix.catfile($BASE, $<link-suffix>).IO.relative($!dest-file-dir);
+        $.replaced = True;
+    }
+
+    method link-url:sym<rel> ($/) {
+        make ~$<link>
     }
 
     method FALLBACK ($name, $m) {
@@ -125,11 +142,14 @@ class MyPOD-Actions {
     }
 }
 
-sub patch-a-doc(Str:D $pod-file --> Str) {
+sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
     say "===> Updating ", $pod-file if $VERBOSE;
     my Bool $backup = False;
     my $src = $pod-file.IO.slurp;
-    my $actions = MyPOD-Actions.new;
+    my $actions = MyPOD-Actions.new(
+        :$pod-file,
+        |(:dest-file-dir(.IO.parent(1)) with $output)
+    );
     my $res = MyPOD.parse($src, :$actions);
 
     die "Failed to parse the source" unless $res;
@@ -186,13 +206,13 @@ multi gen-fmt('md', $src, $base, :$output) {
         invoke-raku $src, $md-dest, 'Markdown';
     }
 }
-multi gen-fmt('html', $src, $base, :$output) {
-    my $html-dest = make-dest($src, $base, 'html', :$output);
-    if !$html-dest.e || ($src.IO.modified > $html-dest.modified) {
-        say "===> Generating ", ~$html-dest;
-        invoke-raku $src, $html-dest, 'HTML';
-    }
-}
+#multi gen-fmt('html', $src, $base, :$output) {
+#    my $html-dest = make-dest($src, $base, 'html', :$output);
+#    if !$html-dest.e || ($src.IO.modified > $html-dest.modified) {
+#        say "===> Generating ", ~$html-dest;
+#        invoke-raku $src, $html-dest, 'HTML';
+#    }
+#}
 
 sub prepare-module {
     require ::($MAIN-MOD);
@@ -205,6 +225,7 @@ sub prepare-module {
 
 sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
     $MAIN-MOD = $_ with $module;
+    $BASE = $base;
     prepare-module;
     my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
@@ -215,7 +236,7 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
                 note ~.bt;
                 exit 1;
             }
-            patch-a-doc($pod-file);
+            patch-a-doc($pod-file, :$output);
             for %into.keys -> $fmt {
                 next unless %into{$fmt};
                 $wm.do-async: {
@@ -228,18 +249,18 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
     $wm.shutdown;
 }
 
-multi MAIN (+@pod-files, Str :m(:module($module))!, Str() :$base = $*CWD, Bool :v(:verbose($verbose)) = False,
+multi MAIN (+@pod-files, Str :m(:module($module))!, Str() :$base = $*CWD, Bool :v(:verbose($verbose)),
             Bool :f(:force($force)) = False,
             Bool :$md = False, Bool :$html = False) {
-    $VERBOSE = $verbose;
+    $VERBOSE = $_ with $verbose;
     $FORCE = $force;
     my @psorted = @pod-files.race.map({ [$_, .IO.s] }).sort({ @^b[1] cmp @^a[1] }).map({ .[0] });
     gen-doc(@psorted, :$module, :$base, :into{ :$md, :$html });
 }
 multi MAIN (Str:D $pod-file, Str :m(:module($module))!, Str() :$base = $*CWD, Str :o(:output($output))?,
-            Bool :v(:verbose($verbose)) = False, Bool :f(:force($force)) = False,
+            Bool :v(:verbose($verbose)), Bool :f(:force($force)) = False,
             Bool :$md = False, Bool :$html = False) {
-    $VERBOSE = $verbose;
+    $VERBOSE = $_ with $verbose;
     $FORCE = $force;
     gen-doc($pod-file, :$module, :$output, :$base, :into{ :$md, :$html });
 }
