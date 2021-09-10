@@ -44,13 +44,17 @@ grammar MyPOD {
 
     proto token pod-link {*}
     multi token pod-link:sym<mod-url> {
-        'L<' <link-module> '|' <link-url> '>'
+        'L<' <link-text> '|' <link-url> '>'
     }
     multi token pod-link:sym<mod-only> {
         'L<' <link-module> '>'
     }
     multi token pod-link:sym<raku-type> {
         'TYPE<' <link-module> '>'
+    }
+
+    token link-text {
+        .*? <?before '|'>
     }
 
     token link-module {
@@ -99,7 +103,7 @@ class MyPOD-Actions {
     }
 
     method pod-link:sym<mod-url>($/) {
-        make 'L<' ~ $<link-module> ~ '|' ~ $<link-url>.made ~ '>';
+        make 'L<' ~ $<link-text> ~ '|' ~ $<link-url>.made ~ '>';
     }
 
     method pod-link:sym<raku-type>($/) {
