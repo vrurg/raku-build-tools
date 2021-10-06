@@ -216,10 +216,11 @@ multi gen-fmt('md', $src, $base, :$output) {
 
 sub prepare-module {
     require ::($MAIN-MOD);
-    require ::($MAIN-MOD ~ '::META');
+    my $meta_mod = %*ENV<META_MOD> // $MAIN-MOD ~ '::META';
+    require ::($meta_mod);
     $MODULE := ::($MAIN-MOD);
     $MOD-VERSION = $MODULE.^ver;
-    my %meta = ::('&' ~ $MAIN-MOD ~ '::META::META6').();
+    my %meta = ::('&' ~ $meta_mod ~ '::META6').();
     $URL = S/\.git$// with %meta<source-url>;
 }
 
