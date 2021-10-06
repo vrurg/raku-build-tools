@@ -29,6 +29,8 @@ DIST_FILES:=$(shell git ls-files)
 CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
 
+DEPENDECIES=fez Async::Workers Pod::To::Markdown
+
 PRECOMP_DIRS?=$(shell find . -type d -name '.precomp')
 BK_FILES?=$(shell find . -name '*.bk')
 CLEAN_DIRS?=$(PRECOMP_DIRS) $(BK_FILES) .test-repo
@@ -124,7 +126,6 @@ build: depends doc
 
 depends: meta depends-install
 
-DEPENDECIES=fez Async::Workers Pod::To::Markdown
 depends-install:
 	$(NOECHO)echo "===> Installing dependencies"
 	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do (zef locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; zef install $$dep)); done'
