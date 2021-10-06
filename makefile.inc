@@ -42,7 +42,7 @@ DOCS_SUBDIRS?=$(shell find lib -type d -name '.*' -prune -o -type d -printf '%P\
 MD_SUBDIRS:=$(addprefix $(MD_DIR)/,$(DOCS_SUBDIRS))
 HTML_SUBDIRS:=$(addprefix $(HTML_DIR)/,$(DOCS_SUBDIRS))
 PM_SRC?=$(shell find lib -name '*.rakumod' | xargs grep -l '^=begin')
-POD_SRC?=$(shell find doc -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \))
+POD_SRC?=$(shell find $(DOC_DIR) -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \))
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
 DOC_DEST?=$(shell find lib doc \( -name '*.rakumod' -o \( -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \) \) \) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
