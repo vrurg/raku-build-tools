@@ -46,7 +46,7 @@ POD_SRC?=$(shell find doc -name '*.rakudoc' -and -not \( -name 'README.rakudoc' 
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
 DOC_DEST?=$(shell find lib doc \( -name '*.rakumod' -o \( -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \) \) \) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
-CHANGELOG_SRC?=$(DOCS_DIR)/ChangeLog.rakudoc
+CHANGELOG_SRC?=$(DOC_DIR)/ChangeLog.rakudoc
 
 export MAIN_MOD META_MOD
 
@@ -99,7 +99,7 @@ doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation sources"
 	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
 	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
-	$(NOECHO)if [ -e $(CHANGELOG_SRC) ]; then raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC); fi
+	$(NOECHO)test -e $(CHANGELOG_SRC) && (raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC))
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
