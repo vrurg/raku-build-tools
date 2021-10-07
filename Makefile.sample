@@ -1,5 +1,5 @@
 
-export MAIN_MOD=Your::Module
-BUILD_TOOLD_DIR=./build-tools
+MAIN_MOD=Your::Module
+BUILD_TOOLS_DIR=./build-tools
 
 include $(BUILD_TOOLS_DIR)/makefile.inc
