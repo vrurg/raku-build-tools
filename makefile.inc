@@ -101,7 +101,7 @@ doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation sources"
 	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
 	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
-	$(NOECHO)test -e $(CHANGELOG_SRC) && (raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC))
+	$(NOECHO)if [ -e $(CHANGELOG_SRC) ]; then raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC); fi
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
