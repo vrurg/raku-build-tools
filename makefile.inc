@@ -140,12 +140,6 @@ release: build is-repo-clean release-test archive
 meta6_mod:
 	$(NOECHO)zef locate META6 2>&1 >/dev/null || (echo "===> Installing META6"; zef install META6)
 
-ifdef NO_META6
-meta:
-else
-meta: meta6_mod $(META_BUILDER) $(META)
-endif
-
 archive: $(MOD_ARCH)
 
 $(MOD_ARCH): $(DIST_FILES)
@@ -157,10 +151,20 @@ $(MOD_ARCH): $(DIST_FILES)
 	$(NOECHO)git push -f --tags
 	$(NOECHO)git archive --prefix="$(MOD_DISTRO)/" -o $(MOD_ARCH) $(MOD_VER)
 
+ifdef NO_META6
+
+meta:
+
+else
+
+meta: meta6_mod $(META_BUILDER) $(META)
+
 $(META): $(META_BUILDER) $(MAIN_MOD_FILE) $(META_MOD_FILE)
 	$(NOECHO)echo "===> Generating $(META)"
 	$(NOECHO)$(META_BUILDER) $(MAIN_MOD) >$(META).out && cp $(META).out $(META)
 	$(NOECHO)rm $(META).out
+
+endif
 
 upload: release
 	$(NOECHO)echo "===> UPLOADING..."
