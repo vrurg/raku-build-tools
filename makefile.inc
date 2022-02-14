@@ -140,7 +140,11 @@ release: build is-repo-clean release-test archive
 meta6_mod:
 	$(NOECHO)zef locate META6 2>&1 >/dev/null || (echo "===> Installing META6"; zef install META6)
 
+ifdef NO_META6
+meta:
+else
 meta: meta6_mod $(META_BUILDER) $(META)
+endif
 
 archive: $(MOD_ARCH)
 
