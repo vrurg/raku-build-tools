@@ -122,7 +122,10 @@ release-test:
 is-repo-clean:
 	$(NOECHO)git diff-index --quiet HEAD || (echo "*ERROR* Repository is not clean, commit your changes first!"; exit 1)
 
-build: depends doc
+build: depends build-local doc
+
+# Target to be overriden by module's custom Makefile
+build-local:
 
 depends: meta depends-install
 
