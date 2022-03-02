@@ -46,7 +46,7 @@ HTML_SUBDIRS:=$(addprefix $(HTML_DIR)/,$(DOCS_SUBDIRS))
 PM_SRC?=$(shell find lib -name '*.rakumod' | xargs grep -l '^=begin')
 POD_SRC?=$(shell if [ -d $(DOC_DIR) ]; then find $(DOC_DIR) -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \); fi)
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
-DOC_DEST?=$(shell find lib doc \( -name '*.rakumod' -o \( -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \) \) \) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
+DOC_DEST?=$(shell find lib $(DOC_DIR) \( -name '*.rakumod' -o \( -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' \) \) \) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
 CHANGELOG_SRC?=$(DOC_DIR)/ChangeLog.rakudoc
 
