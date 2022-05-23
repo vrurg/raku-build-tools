@@ -192,9 +192,10 @@ sub invoke-raku($src, $dst, $fmt) {
     }
     my $dfh = $dst.IO.open(:w);
     $dfh.exception.rethrow unless $dfh;
-    my @cmd = ~$*EXECUTABLE, '-Ilib', '--doc=' ~ $fmt, $src;
+    my @opts = (%*ENV<RAKU_OPTS> // "").split(" ");
+    my @cmd = ~$*EXECUTABLE, '--doc=' ~ $fmt, |@opts, $src;
     say @cmd.join(" "), ' >', ~$dst if $VERBOSE;
-    my $p = run |@cmd, :out($dfh);
+    run |@cmd, :out($dfh);
 }
 
 proto gen-fmt(Str:D, $, $, *%) {*}
@@ -227,7 +228,7 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
     $MAIN-MOD = $_ with $module;
     $BASE = $base;
     prepare-module;
-    my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
+    my $wm = Async::Workers.new(:max-workers(1 || $*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
         say "??? $pod-file" if $VERBOSE;
         $wm.do-async: {

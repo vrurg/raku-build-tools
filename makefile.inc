@@ -52,7 +52,7 @@ DOC_DEST?=$(shell find lib $(DOC_DIR) \( -name '*.rakumod' -o \( -name '*.rakudo
 README_SRC?=$(MAIN_MOD_FILE)
 CHANGELOG_SRC?=$(DOC_DIR)/ChangeLog.rakudoc
 
-export MAIN_MOD META_MOD
+export MAIN_MOD META_MOD RAKU_OPTS
 
 .SUFFXES: .md .rakudoc
 
