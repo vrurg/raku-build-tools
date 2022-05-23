@@ -1,6 +1,5 @@
 #!/usr/bin/env raku
 # use Grammar::Tracer;
-use lib 'lib';
 use Async::Workers;
 use URI;
 
@@ -219,8 +218,8 @@ sub prepare-module {
     my $meta_mod = %*ENV<META_MOD> // $MAIN-MOD ~ '::META';
     require ::($meta_mod);
     $MODULE := ::($MAIN-MOD);
-    $MOD-VERSION = $MODULE.^ver;
     my %meta = ::('&' ~ $meta_mod ~ '::META6').();
+    $MOD-VERSION = $MODULE.^ver // %meta<ver>;
     $URL = S/\.git$// with %meta<source-url>;
 }
 

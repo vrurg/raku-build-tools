@@ -5,8 +5,10 @@ SHELL = /bin/sh
 
 NOECHO?=@
 
+RAKU_OPTS=-I.
+
 MAIN_MOD_FILE=$(addprefix lib/,$(addsuffix .rakumod,$(subst ::,/,$(MAIN_MOD))))
-MOD_VER:=$(shell raku -I. -e 'use $(MAIN_MOD); $(MAIN_MOD).^ver.say')
+MOD_VER:=$(shell raku $(RAKU_OPTS) -e 'use $(MAIN_MOD); $(MAIN_MOD).^ver.say')
 MOD_NAME_PFX?=$(subst ::,-,$(MAIN_MOD))
 MOD_DISTRO?=$(MOD_NAME_PFX)-$(MOD_VER)
 MOD_ARCH?=$(MOD_DISTRO).tar.gz
@@ -99,9 +101,9 @@ $(MD_SUBDIRS) $(HTML_SUBDIRS):
 
 doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation sources"
-	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
-	$(NOECHO)raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
-	$(NOECHO)if [ -e $(CHANGELOG_SRC) ]; then raku $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC); fi
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
+	$(NOECHO)if [ -e $(CHANGELOG_SRC) ]; then raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC); fi
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
