@@ -26,7 +26,7 @@ PROVE_FLAGS?=-l -j$(TEST_JOBS)
 TEST_DIRS?=t
 PROVE?=$(PROVE_CMD) $(PROVE_FLAGS) $(TEST_DIRS)
 
-DIST_FILES:=$(shell git ls-files)
+DIST_FILES:=$(shell git ls-files -z)
 
 CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
