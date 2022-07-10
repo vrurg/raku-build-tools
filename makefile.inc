@@ -31,7 +31,7 @@ DIST_FILES:=$(shell git ls-files -z)
 CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
 
-DEPENDECIES=fez Async::Workers Pod::To::Markdown
+DEPENDECIES=fez Async::Workers Pod::To::Markdown App::Prove6
 
 PRECOMP_DIRS?=$(shell find . -type d -name '.precomp')
 BK_FILES?=$(shell find . -name '*.bk')
