@@ -23,6 +23,7 @@ jobs:
         with:
           repository: 'ugexe/zef'
           ref: 'v0.14.2'
+          path: 'zef'
       - run: |
           pwd
       - uses: actions/checkout@v3
