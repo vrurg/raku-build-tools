@@ -14,17 +14,25 @@ jobs:
   DefaultModuleTest:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v3
-        name: Checkout repository
-        with:
-          submodules: recursive
       - uses: Raku/setup-raku@v1
         name: Prepare Rakudo ${{ inputs.rakudo-version }} environment
         with:
           raku-version: ${{ inputs.rakudo-version }}
+      - uses: actions/checkout@v3
+        name: Checkout zef
+        with:
+          repository: 'ugexe/zef'
+          ref: 'v0.14.2'
+      - run: |
+          pwd
+      - uses: actions/checkout@v3
+        name: Checkout repository
+        with:
+          submodules: recursive
       - run: |
           raku -v
           zef --version
+          pwd
         name: Versions Report
       - run: |
           zef install . --deps-only --test-depends --/test
