@@ -9,6 +9,10 @@ on:
       rakudo-version:
         required: true
         type: string
+      zef-version:
+        required: false
+        type: string
+        default: 'v0.14.2'
 
 jobs:
   DefaultModuleTest:
@@ -22,23 +26,26 @@ jobs:
         name: Checkout zef
         with:
           repository: 'ugexe/zef'
-          ref: 'v0.14.2'
+          ref: ${{ inputs.zef-version }}
           path: 'zef'
-      - run: |
-          pwd
+      - name: Install new zef ${{ inputs.zef-version }}
+        working-directory: zef
+        run: |
+          raku -I. bin/zef install .
       - uses: actions/checkout@v3
         name: Checkout repository
         with:
           submodules: recursive
-      - run: |
+          path: 'main'
+      - name: Versions Report
+        run: |
           raku -v
           zef --version
-          pwd
-        name: Versions Report
-      - run: |
+      - name: Run tests
+        working-directory: main
+        run: |
           zef install . --deps-only --test-depends --/test
           zef install --/test App::Prove6
           prove6 -I. --verbose
-        name: Run tests
 
       # add commands below for your own requirements
