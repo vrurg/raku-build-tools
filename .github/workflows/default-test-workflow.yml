@@ -31,10 +31,13 @@ jobs:
           repository: 'ugexe/zef'
           ref: ${{ inputs.zef-version }}
           path: 'zef'
-      - name: Install new zef ${{ inputs.zef-version }}
-        working-directory: zef
-        run: |
-          raku -I. bin/zef install .
+      - uses: nick-fields/retry@v2
+        name: Install new zef ${{ inputs.zef-version }}
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_on: error
+          command: raku -I./zef zef/bin/zef install ./zef
       - uses: actions/checkout@v3
         name: Checkout repository
         with:
