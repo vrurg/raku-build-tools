@@ -43,9 +43,15 @@ jobs:
           zef --version
       - name: Setup dependencies
         working-directory: main
-        run: zef install . --deps-only --test-depends --/test
+        run: |
+          zef install . --deps-only --test-depends --/test || \
+          zef install . --deps-only --test-depends --/test || \
+          zef install . --deps-only --test-depends --/test 
       - name: Setup App::Prove6
-        run: zef install --/test App::Prove6
+        run: |
+          zef install --/test App::Prove6 || \
+          zef install --/test App::Prove6 || \
+          zef install --/test App::Prove6
       - name: Run tests
         working-directory: main
         run: prove6 -I. --verbose --err=stderr
