@@ -13,6 +13,10 @@ on:
         required: false
         type: string
         default: 'v0.14.2'
+      with-openssl:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   DefaultModuleTest:
@@ -31,7 +35,8 @@ jobs:
         name: Prepare Rakudo ${{ inputs.rakudo-version }} environment
         with:
           raku-version: ${{ inputs.rakudo-version }}
-      - if: contains(inputs.os, 'macos')
+      - if: contains(inputs.os, 'macos') && inputs.with-openssl
+        working-directory: /
         name: Setup OpenSSL for macOS
         run: brew install openssl
       - uses: actions/checkout@v3
