@@ -17,6 +17,9 @@ on:
 jobs:
   DefaultModuleTest:
     runs-on: ${{ inputs.os }}
+    defaults:
+      run:
+        working-directory: main
     steps:
       - uses: Raku/setup-raku@v1
         name: Prepare Rakudo ${{ inputs.rakudo-version }} environment
@@ -42,7 +45,6 @@ jobs:
           raku -v
           zef --version
       - uses: nick-fields/retry@v2
-        working-directory: main
         name: Setup dependencies
         with:
           timeout_minutes: 10
@@ -50,7 +52,6 @@ jobs:
           retry_on: error
           command: zef install . --deps-only --test-depends --/test
       - uses: nick-fields/retry@v2
-        working-directory: main
         name: Setup App::Prove6
         with:
           timeout_minutes: 10
@@ -58,7 +59,6 @@ jobs:
           retry_on: error
           command: zef install --/test App::Prove6
       - name: Run tests
-        working-directory: main
         run: prove6 -I. --verbose --err=stderr
 
       # add commands below for your own requirements
