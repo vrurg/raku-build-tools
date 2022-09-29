@@ -21,6 +21,11 @@ jobs:
       run:
         working-directory: main
     steps:
+      - name: Setup Windows Environment
+        if: ${{ contains(inputs.os, 'windows') }}
+        run: |
+            Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1
+            (Get-ItemProperty "HKLM:System\CurrentControlSet\Control\FileSystem").LongPathsEnabled
       - uses: Raku/setup-raku@v1
         name: Prepare Rakudo ${{ inputs.rakudo-version }} environment
         with:
