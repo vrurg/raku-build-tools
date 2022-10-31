@@ -45,10 +45,10 @@ HTML_DIR?=$(DOCS_DIR)/html
 DOCS_SUBDIRS?=$(shell find lib -type d -name '.*' -prune -o -type d -printf '%P\n')
 MD_SUBDIRS:=$(addprefix $(MD_DIR)/,$(DOCS_SUBDIRS))
 HTML_SUBDIRS:=$(addprefix $(HTML_DIR)/,$(DOCS_SUBDIRS))
-PM_SRC?=$(shell find lib -name '*.rakumod' | xargs grep -l '^=begin')
-POD_SRC?=$(shell if [ -d $(DOC_DIR) ]; then find $(DOC_DIR) -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' -or -name '._*' \); fi)
+PM_SRC?=$(shell git ls-files lib | xargs grep -l '^=begin')
+POD_SRC?=$(shell git ls-files $(DOC_DIR) | grep -vi 'readme.rakudoc' | grep -vi 'changelog.rakudoc')
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
-DOC_DEST?=$(shell find lib $(DOC_DIR) \( -name '*.rakumod' -o \( -name '*.rakudoc' -and -not \( -name 'README.rakudoc' -or -name 'ChangeLog.rakudoc' -or -name '._*' \) \) \) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
+DOC_DEST?=$(shell git ls-files lib $(DOC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
 CHANGELOG_SRC?=$(DOC_DIR)/ChangeLog.rakudoc
 
