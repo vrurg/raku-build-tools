@@ -234,7 +234,7 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
         $wm.do-async: {
             CATCH {
                 note $_;
-                note ~.bt;
+                note ~.backtrace;
                 exit 1;
             }
             patch-a-doc($pod-file, :$output);
