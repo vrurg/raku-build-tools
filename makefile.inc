@@ -174,7 +174,7 @@ endif
 upload: release
 	$(NOECHO)echo "===> UPLOADING..."
 	$(NOECHO)/bin/sh -c 'read -p "Do you really want to upload to the ecosystem? (y/N) " answer; [ $$answer = "Y" -o $$answer = "y" ]'
-	$(NOECHO)fez upload
+	$(NOECHO)fez upload --file=$(MOD_ARCH)
 	$(NOECHO)echo "===> Uploaded!"
 
 clean:
