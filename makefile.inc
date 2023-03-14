@@ -109,7 +109,7 @@ doc_gen: $(DOC_BUILDER)
 
 #html: $(addprefix $(HTML_DIR)/,$(patsubst %.rakudoc,%.html,$(patsubst %.rakumod,%.html,$(DOC_DEST))))
 
-test:
+test::
 	$(NOECHO)echo "===> Testing"
 	$(NOECHO)$(PROVE)
 
