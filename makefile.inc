@@ -38,7 +38,10 @@ BK_FILES?=$(shell find . -name '*.bk')
 CLEAN_DIRS?=$(PRECOMP_DIRS) $(BK_FILES) .test-repo
 
 # Doc variables
+# !!! DOC_DIR is DEPRECATED!
 DOC_DIR?=doc
+# Use this for transition time compatibility
+DOC_SRC_DIR?=$(DOC_DIR)
 DOCS_DIR?=docs
 MD_DIR?=$(DOCS_DIR)/md
 HTML_DIR?=$(DOCS_DIR)/html
@@ -46,11 +49,11 @@ DOCS_SUBDIRS?=$(shell find lib -type d -name '.*' -prune -o -type d -printf '%P\
 MD_SUBDIRS:=$(addprefix $(MD_DIR)/,$(DOCS_SUBDIRS))
 HTML_SUBDIRS:=$(addprefix $(HTML_DIR)/,$(DOCS_SUBDIRS))
 PM_SRC?=$(shell git ls-files lib | xargs grep -l '^=begin')
-POD_SRC?=$(shell git ls-files $(DOC_DIR) | grep -vi 'readme.rakudoc' | grep -vi 'changelog.rakudoc')
+POD_SRC?=$(shell git ls-files $(DOC_SRC_DIR) | grep -vi 'readme.rakudoc' | grep -vi 'changelog.rakudoc')
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
-DOC_DEST?=$(shell git ls-files lib $(DOC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
+DOC_DEST?=$(shell git ls-files lib $(DOC_SRC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
-CHANGELOG_SRC?=$(DOC_DIR)/ChangeLog.rakudoc
+CHANGELOG_SRC?=$(DOC_SRC_DIR)/ChangeLog.rakudoc
 
 export MAIN_MOD META_MOD RAKU_OPTS
 
