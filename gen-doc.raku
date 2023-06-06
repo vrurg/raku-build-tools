@@ -40,7 +40,7 @@ grammar MyPOD {
     }
 
     token pod-text {
-        .+? <?before [[L | TYPE] '<'] || [^^ '=end']>
+        .+? <?before [[L | TYPE | EXAMPLE] '<'] || [^^ '=end']>
     }
 
     proto token pod-link {*}
@@ -52,6 +52,9 @@ grammar MyPOD {
     }
     multi token pod-link:sym<raku-type> {
         'TYPE<' <link-module> '>'
+    }
+    multi token pod-link:sym<example-script> {
+        'EXAMPLE<' $<script>=[<.url-char>+] '>'
     }
 
     token link-text {
@@ -121,6 +124,13 @@ class MyPOD-Actions {
         my $link-mod = $<link-module>.made;
         make 'L<C<' ~ $<link-module><link-module-name> ~ '>|https://docs.raku.org/type/' ~ $link-mod ~ '>';
         $.replaced = True;
+    }
+
+    method pod-link:sym<example-script>($/) {
+        my $script-path = IO::Spec::Unix.catfile('examples', ~$<script>);
+        my $url-path = ~$script-path.IO.relative($!dest-file-dir);
+        $.replaced = True;
+        make 'L<I<' ~ $<script> ~ '>|' ~ $url-path ~ '>'
     }
 
     method link-module($/) {
