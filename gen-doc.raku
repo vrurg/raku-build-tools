@@ -40,7 +40,7 @@ grammar MyPOD {
     }
 
     token pod-text {
-        .+? <?before [[L | TYPE | EXAMPLE] '<'] || [^^ '=end']>
+        .+? <?before [[L | TYPE | EXAMPLE | TEST | FILE] '<'] || [^^ '=end']>
     }
 
     proto token pod-link {*}
@@ -54,7 +54,13 @@ grammar MyPOD {
         'TYPE<' <link-module> '>'
     }
     multi token pod-link:sym<example-script> {
-        'EXAMPLE<' $<script>=[<.url-char>+] '>'
+        'EXAMPLE<' $<file>=[<.url-char>+] '>'
+    }
+    multi token pod-link:sym<test-script> {
+        'TEST<' $<file>=[<.url-char>+] '>'
+    }
+    multi token pod-link:sym<file> {
+        'FILE<' $<file>=[<.url-char>+] '>'
     }
 
     token link-text {
@@ -126,11 +132,23 @@ class MyPOD-Actions {
         $.replaced = True;
     }
 
-    method pod-link:sym<example-script>($/) {
-        my $script-path = IO::Spec::Unix.catfile('examples', ~$<script>);
-        my $url-path = ~$script-path.IO.relative($!dest-file-dir);
+    method !link-file-from-top-level($/, Str $subdir?) {
+        my $file-path = IO::Spec::Unix.catfile(|($_ with $subdir), ~$<file>);
+        my $url-path = ~$file-path.IO.relative($!dest-file-dir);
         $.replaced = True;
-        make 'L<I<' ~ $<script> ~ '>|' ~ $url-path ~ '>'
+        make 'L<I<' ~ $<file> ~ '>|' ~ $url-path ~ '>'
+    }
+
+    method pod-link:sym<example-script>($/) {
+        self!link-file-from-top-level($/, 'examples');
+    }
+
+    method pod-link:sym<test-script>($/) {
+        self!link-file-from-top-level($/, 't');
+    }
+
+    method pod-link:sym<file>($/) {
+        self!link-file-from-top-level($/);
     }
 
     method link-module($/) {
