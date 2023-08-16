@@ -20,11 +20,31 @@ META_BUILDER?=$(BUILD_TOOLD_DIR)/gen-META.raku
 DOC_BUILDER?=$(BUILD_TOOLD_DIR)/gen-doc.raku
 DOC_BUILD_ARGS?=--module=$(MAIN_MOD)
 
-TEST_JOBS?=4
-PROVE_CMD?=prove6
+TEST_JOBS?=$(shell raku -e 'say $*KERNEL.cpu-cores')
+
+ifeq "$(OS)" "Windows_NT"
+OSNAME:=win
+else
+OSNAME:=$(shell uname)
+endif
+
+ifeq "$(OSNAME)" "Darwin"
+PROVE_ENV?=DYLD_LIBRARY_PATH=/opt/local/lib
+endif
+
+PROVE6:=$(shell which prove6)
+PROVE5:=$(shell which prove)
+ifneq "$(PROVE6)" ""
+PROVE_CMD?=raku $(PROVE6)
 PROVE_FLAGS?=-I. -j$(TEST_JOBS)
+else ifneq "$(PROVE5)" ""
+PROVE_CMD?=$(PROVE5) -e "raku -I."
+PROVE_FLAGS?=--ext "rakutest" -j$(TEST_JOBS)
+else
+$(error Neither prove6 nor prove utility is found)
+endif
 TEST_DIRS?=t
-PROVE?=$(PROVE_CMD) $(PROVE_FLAGS) $(TEST_DIRS)
+PROVE?=$(PROVE_ENV) $(PROVE_CMD) $(PROVE_FLAGS) $(TEST_DIRS)
 
 DIST_FILES:=$(shell git ls-files -z)
 
