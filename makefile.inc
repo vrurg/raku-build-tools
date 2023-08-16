@@ -29,22 +29,26 @@ OSNAME:=$(shell uname)
 endif
 
 ifeq "$(OSNAME)" "Darwin"
-PROVE_ENV?=DYLD_LIBRARY_PATH=/opt/local/lib
+DYLD_ENV?=DYLD_LIBRARY_PATH=/opt/local/lib
+else
+DYLD_ENV?=
 endif
 
 PROVE6:=$(shell which prove6)
 PROVE5:=$(shell which prove)
 ifneq "$(PROVE6)" ""
-PROVE_CMD?=raku $(PROVE6)
-PROVE_FLAGS?=-I. -j$(TEST_JOBS)
+	PROVE_CMD?=raku $(PROVE6)
+	PROVE_FLAGS?=-I. -j$(TEST_JOBS)
 else ifneq "$(PROVE5)" ""
-PROVE_CMD?=$(PROVE5) -e "raku -I."
-PROVE_FLAGS?=--ext "rakutest" -j$(TEST_JOBS)
+	PROVE_CMD?=$(PROVE5) -e "raku -I."
+	PROVE_FLAGS?=--ext "rakutest" -j$(TEST_JOBS)
 else
-$(error Neither prove6 nor prove utility is found)
+	$(error Neither prove6 nor prove utility is found)
 endif
 TEST_DIRS?=t
-PROVE?=$(PROVE_ENV) $(PROVE_CMD) $(PROVE_FLAGS) $(TEST_DIRS)
+PROVE?=$(DYLD_ENV) $(PROVE_CMD) $(PROVE_FLAGS) $(TEST_DIRS)
+
+ZEF:=$(DYLD_ENV) raku $(shell which zef)
 
 DIST_FILES:=$(shell git ls-files -z)
 
@@ -156,8 +160,8 @@ depends: meta depends-install
 
 depends-install:
 	$(NOECHO)echo "===> Installing dependencies"
-	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do (zef locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; zef install $$dep)); done'
-	$(NOECHO)zef --deps-only install .
+	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do ($(ZEF) locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; $(ZEF) install $$dep)); done'
+	$(NOECHO)$(ZEF) --deps-only install .
 
 version: doc meta clean
 #	@git add . && git commit -m 'Minor: version bump'
@@ -166,7 +170,7 @@ release: build is-repo-clean release-test archive
 	$(NOECHO)echo "===> Done releasing"
 
 meta6_mod:
-	$(NOECHO)zef locate META6 2>&1 >/dev/null || (echo "===> Installing META6"; zef install META6)
+	$(NOECHO)$(ZEF) locate META6 2>&1 >/dev/null || (echo "===> Installing META6"; $(ZEF) install META6)
 
 archive: $(MOD_ARCH)
 
@@ -207,6 +211,6 @@ clean:
 
 install: build
 	$(NOECHO)echo "===> Installing"
-	$(NOECHO)zef install .
+	$(NOECHO)$(ZEF) install .
 
 # vim: ft=make
