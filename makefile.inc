@@ -77,7 +77,9 @@ POD_SRC?=$(shell git ls-files $(DOC_SRC_DIR) | grep -vi 'readme.rakudoc' | grep 
 DOC_SRC?=$(POD_SRC) $(PM_SRC)
 DOC_DEST?=$(shell git ls-files lib $(DOC_SRC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
-CHANGELOG_SRC?=$(DOC_SRC_DIR)/ChangeLog.rakudoc
+ifneq ("","$(wildcard $(DOC_SRC_DIR)/ChangeLog.rakudoc)")
+	CHANGELOG_SRC?=$(DOC_SRC_DIR)/ChangeLog.rakudoc
+endif
 
 export MAIN_MOD META_MOD RAKU_OPTS
 
@@ -130,7 +132,9 @@ doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation sources"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
-	$(NOECHO)if [ -e $(CHANGELOG_SRC) ]; then raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC); fi
+ifdef CHANGELOG_SRC
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC)
+endif
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
