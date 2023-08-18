@@ -170,7 +170,7 @@ class MyPOD-Actions {
 }
 
 sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
-    say "===> Updating ", $pod-file if $VERBOSE;
+    note "===> Updating ", $pod-file if $VERBOSE;
     my Bool $backup = False;
     my $src = $pod-file.IO.slurp;
     my $actions = MyPOD-Actions.new(
@@ -222,7 +222,7 @@ sub invoke-raku($src, $dst, $fmt) {
     $dfh.exception.rethrow unless $dfh;
     my @opts = (%*ENV<RAKU_OPTS> // "").split(" ");
     my @cmd = ~$*EXECUTABLE, '--doc=' ~ $fmt, |@opts, $src;
-    say @cmd.join(" "), ' >', ~$dst if $VERBOSE;
+    note '$ ', @cmd.join(" "), ' >', ~$dst if $VERBOSE;
     run |@cmd, :out($dfh);
 }
 
@@ -258,7 +258,7 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
     prepare-module;
     my $wm = Async::Workers.new(:max-workers(1 || $*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
-        say "??? $pod-file" if $VERBOSE;
+        note "??? $pod-file" if $VERBOSE;
         $wm.do-async: {
             CATCH {
                 note $_;
