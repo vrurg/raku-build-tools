@@ -1,5 +1,6 @@
 #!/usr/bin/env raku
-# use Grammar::Tracer;
+use v6.e.PREVIEW;
+use experimental :rakuast;
 use Async::Workers;
 use URI;
 
@@ -10,6 +11,9 @@ my $BASE;
 my $MOD-VERSION;
 my $FORCE = False;
 my $URL;
+
+$*OUT.out-buffer = 0;
+$*ERR.out-buffer = 0;
 
 grammar MyPOD {
     token TOP {
@@ -35,60 +39,41 @@ grammar MyPOD {
     token pod {
         :my $pod-kw;
         <pod-start($pod-kw)>
-        [<pod-link> || <pod-text>]+
+        [<macro> || <pod-text>]+
         <pod-end($pod-kw)>
     }
 
     token pod-text {
-        .+? <?before [[L | TYPE | EXAMPLE | TEST | FILE] '<'] || [^^ '=end']>
+        .+? <?before <.macro-opener> || [^^ '=end']>
     }
 
-    proto token pod-link {*}
-    multi token pod-link:sym<mod-url> {
-        'L<' <link-text> '|' <link-url> '>'
-    }
-    multi token pod-link:sym<mod-only> {
-        'L<' <link-module> '>'
-    }
-    multi token pod-link:sym<raku-type> {
-        'TYPE<' <link-module> '>'
-    }
-    multi token pod-link:sym<example-script> {
-        'EXAMPLE<' $<file>=[<.url-char>+] '>'
-    }
-    multi token pod-link:sym<test-script> {
-        'TEST<' $<file>=[<.url-char>+] '>'
-    }
-    multi token pod-link:sym<file> {
-        'FILE<' $<file>=[<.url-char>+] '>'
+    token macro {
+        :my $*MACRO-LBRACE;
+        :my $*MACRO-RBRACE;
+        :my $*MACRO-KEYWORD;
+        <macro-opener> <macro-arg> $*MACRO-RBRACE
     }
 
-    token link-text {
-        .*? <?before '|'>
+    token macro-opener {
+        <.wb> $<macro-keyword>=[TYPE | EXAMPLE | TEST | FILE] <macro-lbrace>
+        {
+            $*MACRO-LBRACE = ~$<macro-lbrace> if DYNAMIC::<$*MACRO-LBRACE>:exists;
+            $*MACRO-KEYWORD = ~$<macro-keyword> if DYNAMIC::<$*MACRO-KEYWORD>:exists;
+        }
     }
 
-    token link-module {
-        'C<' <link-module-name> '>' | <link-module-name>
-    }
-    token link-module-name {
-        $<lmn-type>=[ [<.alnum>+] ** 1..* % '::' ]
-        $<lmn-smile>=[ ':D' || ':U' ]?
+    token macro-arg {
+        .+? <?before $*MACRO-RBRACE>
     }
 
-    proto token link-url {*}
-    multi token link-url:sym<full> {
-        $<link-prefix>=['https://github.com/' <.url-char>+? '/blob/v'] <version> $<link-suffix>=['/' <.url-char>+]
-    }
-    multi token link-url:sym<rel> {
-        <!before http s? '://'> && $<link>=[<.url-char>+]
+    proto token macro-lbrace {*}
+
+    multi token macro-lbrace:sym«<» {
+        '<'+ { $*MACRO-RBRACE = '>' x $/.chars if DYNAMIC::<$*MACRO-RBRACE>:exists }
     }
 
-    token url-char {
-        <!before '>'> . && .
-    }
-
-    token version {
-        [\d+] ** 3 % '.'
+    multi token macro-lbrace:sym<«> {
+        '«' { $*MACRO-RBRACE = '»' if DYNAMIC::<$*MACRO-RBRACE>:exists }
     }
 }
 
@@ -107,66 +92,380 @@ class MyPOD-Actions {
         make $!ver-str;
     }
 
-    method pod-link:sym<mod-only>($/) {
-        my $link-mod = $<link-module>.made;
-        my $link-mod-text = ~$<link-module>;
-        my $link-url;
-        if $<link-module><link-module-name>.Str.starts-with($MAIN-MOD) {
-            my $link-path = IO::Spec::Unix.catfile('docs', 'md', |$link-mod.split('::')) ~ '.md';
-            $link-url = ~$link-path.IO.relative($!dest-file-dir);
+    method !link-file-from-top-level($/, $file, Str $subdir?) {
+        my $file-path = IO::Spec::Unix.catfile(|($_ with $subdir), ~$file);
+        unless $BASE.IO.add($file-path).e {
+            note "!!! WARNING !!! Missing file '" ~ $file-path ~ "' in macro " ~ $*MACRO-KEYWORD;
         }
-        else {
-            $link-url = 'https://modules.raku.org/dist/' ~ $<link-module><link-module-name><lmn-type>;
-        }
-        $.replaced = True;
-        make 'L<' ~ $<link-module> ~ '|' ~ $link-url ~ '>';
-    }
-
-    method pod-link:sym<mod-url>($/) {
-        make 'L<' ~ $<link-text> ~ '|' ~ $<link-url>.made ~ '>';
-    }
-
-    method pod-link:sym<raku-type>($/) {
-        my $link-mod = $<link-module>.made;
-        make 'L<C<' ~ $<link-module><link-module-name> ~ '>|https://docs.raku.org/type/' ~ $link-mod ~ '>';
-        $.replaced = True;
-    }
-
-    method !link-file-from-top-level($/, Str $subdir?) {
-        my $file-path = IO::Spec::Unix.catfile(|($_ with $subdir), ~$<file>);
         my $url-path = ~$file-path.IO.relative($!dest-file-dir);
         $.replaced = True;
-        make 'L<I<' ~ $<file> ~ '>|' ~ $url-path ~ '>'
+        my $lbr = $*MACRO-LBRACE || '«';
+        my $rbr = $*MACRO-RBRACE || '»';
+        make "L{$lbr}I{$lbr}" ~ $file ~ "$rbr|" ~ $url-path ~ $rbr
     }
 
-    method pod-link:sym<example-script>($/) {
-        self!link-file-from-top-level($/, 'examples');
-    }
+    proto method unwrap-macro(|) {*}
 
-    method pod-link:sym<test-script>($/) {
-        self!link-file-from-top-level($/, 't');
-    }
-
-    method pod-link:sym<file>($/) {
-        self!link-file-from-top-level($/);
-    }
-
-    method link-module($/) {
-        make ~$<link-module-name><lmn-type>
-    }
-
-    method link-url:sym<full> ($/) {
-        make IO::Spec::Unix.catfile($BASE, $<link-suffix>).IO.relative($!dest-file-dir);
+    multi method unwrap-macro($/, 'TYPE', $type) {
         $.replaced = True;
+        my $non-smiled = $type.ends-with(':D' | ':U') ?? $type.substr(0, *-2) !! $type;
+        my $lbr = $*MACRO-LBRACE || '«';
+        my $rbr = $*MACRO-RBRACE || '»';
+        make "L{$lbr}C{$lbr}" ~ $type ~ $rbr ~ '|https://docs.raku.org/type/' ~ $non-smiled.split('::').join("/") ~ $rbr
     }
 
-    method link-url:sym<rel> ($/) {
-        make ~$<link>
+    multi method unwrap-macro($/, 'EXAMPLE', $file) {
+        self!link-file-from-top-level($/, $file, 'examples');
     }
 
+    multi method unwrap-macro($/, 'TEST', $file is copy) {
+        my $tdir = $BASE.IO.add('t');
+        unless $tdir.add($file).e {
+            if $tdir.add($file ~ '.rakutest').e {
+                $file ~= '.rakutest';
+            }
+        }
+        self!link-file-from-top-level($/, $file, 't');
+    }
+
+    multi method unwrap-macro($/, 'FILE', $file) {
+        self!link-file-from-top-level($/, $file);
+    }
+
+    multi method unwrap-macro($/, Str:D $kwd, |) {
+        die "Unsupported macro '$kwd'"
+    }
+
+    method macro($/) {
+        self.unwrap-macro($/, ~$<macro-opener><macro-keyword>, ~$<macro-arg>);
+    }
     method FALLBACK ($name, $m) {
         $m.make($m.chunks.map({ given .value { .?made // ~$_ } }).join);
     }
+}
+
+my regex RxMod {
+    $<module>=[ [ <.alpha> <.alnum>* ] ** 1..* % '::' ]
+    [
+        [ ':auth<' $<author>=[ .*? <?before '>'> ] '>' ]
+        | [ ':ver<' $<version>=[ .*? <?before '>'> ] '>' ]
+    ]*
+    $<smile>=[ ':' D | U | _ ]?
+}
+
+sub tr-note(*@msg) {
+    my $level = $*DOC-AST-LEVEL // 0;
+    note @msg.map(*.gist).join.indent($level*2);
+}
+
+role ASTContext {
+    method checkin {...}
+    method checkout {...}
+}
+
+class ASTLink does ASTContext {
+    has $.is-mod-link = True;
+    has $.text-node;
+
+    method checkin {
+        my $cur-node = $*DOC-NODE;
+        $!is-mod-link &&= $cur-node ~~ RakuAST::Doc::Markup && $cur-node.atoms.elems < 2;
+    }
+
+    method checkout {
+        return unless $!is-mod-link;
+
+        my $cur-node = $*DOC-NODE;
+        $!is-mod-link &&= @*DOC-NODE-CHILDREN < 2;
+
+        if $!is-mod-link && $cur-node.letter eq 'C' {
+            if $cur-node.atoms.head ~~ &RxMod {
+                $!text-node = $cur-node;
+            }
+        }
+    }
+}
+
+class ASTContextStack {
+    has ASTContext @.stack;
+    method enter-ctx(ASTContext:D $ctx, &code) is raw {
+        @!stack.push: $ctx;
+        LEAVE @!stack.pop;
+        &code()
+    }
+
+    method checkin {
+        for @.stack.reverse -> $ctx {
+            $ctx.checkin;
+        }
+    }
+    method checkout {
+        for @.stack.reverse -> $ctx {
+            $ctx.checkout;
+        }
+    }
+}
+
+sub enter-ast-ctx(RakuAST::Node:D $node, ASTContext:D $ctx) {
+    $*CTX-STACK.enter-ctx: $ctx, {
+        traverse-ast($node)
+    }
+}
+
+sub chomp-paragraphs(RakuAST::Node $n) {
+    return unless my @para = $n.paragraphs;
+
+    @para[*-1] .= chomp if @para[*-1] ~~ Str;
+    $n.set-paragraphs(@para);
+}
+
+sub replace-paragraph($from, $to) {
+    my $parent = $*DOC-NODE-PARENT;
+    my @para;
+    for $parent.paragraphs -> $p {
+        if $p === $from {
+            @para.push: $to;
+        }
+        else {
+            @para.push: $p;
+        }
+    }
+    $parent.set-paragraphs(@para);
+    $*DOC-CHANGED = True;
+
+}
+
+proto sub ast-literal($) {*}
+multi sub ast-literal(Str:D $v) { RakuAST::StrLiteral.new($v) }
+multi sub ast-literal(Int:D $v) { RakuAST::IntLiteral.new($v) }
+multi sub ast-literal(Num:D $v) { RakuAST::NumLiteral.new($v) }
+multi sub ast-literal(Rat:D $v) { RakuAST::RatLiteral.new($v) }
+
+proto sub config-adverb($, $) {*}
+multi sub config-adverb($key, Str:D $value) {
+    $key => RakuAST::Circumfix::Parentheses.new(
+            RakuAST::SemiList.new(
+                RakuAST::Statement::Expression.new(
+                    expression => RakuAST::QuotedString.new(
+                    segments   => (ast-literal($value),)))))
+}
+multi sub config-adverb($key, Bool:D $value) {
+    $key => RakuAST::Term::Name.new( RakuAST::Name.from-identifier($value.Str) );
+}
+multi sub config-adverb($key, RakuAST::Node:D $value) {
+    $key => RakuAST::Circumfix::Parentheses.new(
+            RakuAST::SemiList.new(
+                RakuAST::Statement::Expression.new(expression => $value)))
+}
+multi sub config-adverb($key, $value) {
+    $key => RakuAST::Circumfix::Parentheses.new(
+            RakuAST::SemiList.new(
+                RakuAST::Statement::Expression.new(expression => ast-literal($value))))
+}
+
+sub example-text(IO:D $example) {
+    my $in-example = False;
+    my @example-lines;
+    for $example.lines -> $line {
+        if $line ~~ /^\h* '#?example' \h+ $<cmd>=[start | end] \h* $/ -> $m {
+            $in-example = $m<cmd> eq 'start';
+        }
+        else {
+            @example-lines.push: $line if $in-example;
+        }
+    }
+    @example-lines.join("\n");
+}
+
+sub example-out(Str:D() $example) {
+    my $p = run 'raku', '-I.', $example, :out;
+
+    die "Example exited with rc=" ~ $p.exitcode ~ ", can't use it" unless $p.exitcode == 0;
+    $p.out.slurp(:close)
+}
+
+sub para-text($txt) {
+    $txt.trim-trailing ~ "\n"
+}
+
+sub make-example-paragraph(IO() $example) {
+    die "Can't produce example paragraph for '" ~ $example ~ "': no such file"
+        unless $example.e;
+
+    my $ex-para;
+
+    indir $BASE, {
+        my $ex-relative = $example.relative;
+        my %config =
+            config-adverb("example", ~$ex-relative),
+            config-adverb("mtime", $example.modified.ceiling);
+
+        $ex-para = RakuAST::Doc::Block.new(:type<item>, :%config);
+
+        $ex-para.add-paragraph("From ");
+        $ex-para.add-paragraph:
+            RakuAST::Doc::Markup.new(
+                :letter<L>, :opener("<"), :closer(">"),
+                atoms => ( ~$ex-relative ),
+                meta => ( ~$example.relative($*DEST-FILE-DIR) )
+            );
+        $ex-para.add-paragraph: "\n\n";
+
+        my $ex-flag = config-adverb("example", True);
+
+        my $code = RakuAST::Doc::Block.new(
+            :type<code>,
+            config => %( config-adverb("lang", "raku"), $ex-flag ));
+        $code.add-paragraph: para-text(example-text($example));
+        $ex-para.add-paragraph($code);
+
+        $ex-para.add-paragraph("Sample output:\n\n");
+
+        my $out-block = RakuAST::Doc::Block.new( :type<output>, config => %( $ex-flag ) );
+        $out-block.add-paragraph(example-out($example));
+        $ex-para.add-paragraph($out-block);
+    }
+
+    $ex-para
+}
+
+sub update-example($ex-para, IO() $example) {
+    for $ex-para.paragraphs.grep({ $_ ~~ RakuAST::Doc::Block && (.config andthen .<example> andthen .EVAL) }) -> $para {
+        given $para.type {
+            when 'code' {
+                $para.set-paragraphs(para-text(example-text($example)));
+            }
+            when 'output' {
+                $para.set-paragraphs(para-text(example-out($example)));
+            }
+        }
+    }
+}
+
+proto sub ast-node(|) {*}
+
+multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
+    return traverse-ast($markup) if $markup.meta;
+
+    my $ctx = ASTLink.new;
+    enter-ast-ctx $markup, $ctx;
+
+    if $ctx.is-mod-link {
+        my $m = $ctx.text-node.atoms.head ~~ &RxMod;
+
+        $ctx.text-node.set-atoms($m<module> ~ $m<smile>);
+
+        my $mod-name = ~$m<module>;
+        my $link;
+
+        if $mod-name ~~ /$MAIN-MOD <.wb>/ {
+            # Until rakudoc: schema is supported by standard tools, stick to 'md' format.
+            my $link-path = IO::Spec::Unix.catfile('docs', 'md', |$mod-name.split('::')) ~ '.md';
+            $link = ~$link-path.IO.relative($*DEST-FILE-DIR);
+        }
+        else {
+            $link = 'https://raku.land/';
+
+            if $m<author> {
+                $link ~= $m<author> ~ '/' ~ $m<module>;
+                if $m<version> {
+                    $link ~= '?v=' ~ $m<version>;
+                }
+            }
+            else {
+                $link ~= '?q=' ~ $m<module>
+            }
+        }
+
+        $markup.set-meta($link);
+
+        $*DOC-CHANGED = True;
+    }
+}
+
+multi sub ast-node(RakuAST::Doc::Markup:D $m) {
+    traverse-ast($m);
+}
+
+multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'head') {
+    chomp-paragraphs($b);
+    traverse-ast($b)
+}
+
+multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'item') {
+    with $b.config<example> {
+        indir $BASE, {
+            my $example = $b.config<example>.EVAL.IO;
+            my $mtime = $b.config<mtime>.EVAL;
+
+            if $example.modified > $mtime {
+                update-example($b, $example);
+                $*DOC-CHANGED = True;
+            }
+        }
+    }
+    else {
+        chomp-paragraphs($b);
+    }
+    nextsame;
+}
+
+multi sub ast-node(RakuAST::Doc::Block:D $ex where *.type eq 'EXAMPLE') {
+    my $spec := IO::Spec::Unix;
+    my $example = ($ex.paragraphs.head andthen .trim);
+    die "Example declaration is missing example file" unless $example;
+    die "Example cannot be absolute, got '$example'" if $spec.is-absolute($example);
+    $example = $spec.canonpath($example);
+    my @components = $spec.splitdir($example);
+    if @components == 1 {
+        $example = $spec.catdir($BASE, "examples", $example);
+    }
+    else {
+        $example = $spec.catdir($BASE, |@components);
+    }
+
+    unless $example.IO.e {
+        $example ~= '.raku';
+    }
+
+    # tr-note "EXAMPLE FILE: ", $example;
+    my $ex-para = make-example-paragraph($example);
+    replace-paragraph($ex, $ex-para);
+    $*DOC-CHANGED = True;
+}
+
+multi sub ast-node(RakuAST::Node:D $node) {
+    traverse-ast($node)
+}
+
+proto sub traverse-ast(|) {*}
+
+multi sub traverse-ast(Str:D $doc) {
+    my $*DOC-CHANGED = False;
+    my $*DOC-AST-LEVEL = 0;
+    my $*CTX-STACK = ASTContextStack.new;
+    my $ast = $doc.AST;
+    traverse-ast $ast;
+
+    return Nil unless $*DOC-CHANGED;
+
+    $ast.DEPARSE
+}
+
+
+multi sub traverse-ast(RakuAST::Node:D $node, &handler?) {
+    # tr-note($node.^name) if $VERBOSE;
+    my $level = $*DOC-AST-LEVEL + 1;
+    my $*DOC-NODE-PARENT = $node;
+    my @*DOC-NODE-CHILDREN;
+    $*CTX-STACK.checkin;
+    $node.visit-children(-> $child {
+        my $*DOC-NODE = $child;
+        my $*DOC-AST-LEVEL := $level;
+        @*DOC-NODE-CHILDREN.push: $child;
+        ast-node($child);
+    });
+    $*CTX-STACK.checkout;
 }
 
 sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
@@ -181,7 +480,10 @@ sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
 
     die "Failed to parse the source" unless $res;
 
-    if $FORCE || $actions.replaced {
+    my $*DEST-FILE-DIR = $actions.dest-file-dir;
+    my $changed = traverse-ast($res.made);
+
+    if $FORCE || $actions.replaced || $changed {
         if $backup {
             my $idx = 0;
             my $bak-file = $pod-file ~ ".bk";
@@ -191,7 +493,7 @@ sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
             $pod-file.IO.rename($bak-file);
         }
 
-        $pod-file.IO.spurt($res.made);
+        $pod-file.IO.spurt($changed || $res.made);
         say "===> Updated ", $pod-file;
     }
     $pod-file
@@ -220,7 +522,7 @@ sub invoke-raku($src, $dst, $fmt) {
     }
     my $dfh = $dst.IO.open(:w);
     $dfh.exception.rethrow unless $dfh;
-    my @opts = (%*ENV<RAKU_OPTS> // "").split(" ");
+    my @opts = (%*ENV<RAKU_OPTS> andthen .split(" "));
     my @cmd = ~$*EXECUTABLE, '--doc=' ~ $fmt, |@opts, $src;
     note '$ ', @cmd.join(" "), ' >', ~$dst if $VERBOSE;
     run |@cmd, :out($dfh);
@@ -229,7 +531,8 @@ sub invoke-raku($src, $dst, $fmt) {
 proto gen-fmt(Str:D, $, $, *%) {*}
 multi gen-fmt('md', $src, $base, :$output) {
     my $md-dest = make-dest($src, $base, 'md', :$output);
-    if !$md-dest.e || $src.IO.modified > $md-dest.modified {
+    my $md-mtime = $md-dest.modified;
+    if !$md-dest.e || $src.IO.modified > $md-mtime || $*PROGRAM.modified > $md-mtime {
         say "===> Generating ", |($VERBOSE ?? $src ~ " --> " !! Empty), ~$md-dest;
         invoke-raku $src, $md-dest, 'Markdown';
     }
@@ -269,6 +572,7 @@ sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
             for %into.keys -> $fmt {
                 next unless %into{$fmt};
                 $wm.do-async: {
+                    my $*DOC-OUT-FMT = $fmt;
                     gen-fmt $fmt, $pod-file, $base, :$output;
                 }
             }
