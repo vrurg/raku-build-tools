@@ -212,14 +212,7 @@ sub enter-ast-ctx(RakuAST::Node:D $node, ASTContext:D $ctx) {
     }
 }
 
-sub chomp-paragraphs(RakuAST::Node $n) {
-    return unless my @para = $n.paragraphs;
-
-    @para[*-1] .= chomp if @para[*-1] ~~ Str;
-    $n.set-paragraphs(@para);
-}
-
-sub replace-paragraph($from, $to) {
+sub replace-paragraph($from, $to, :$modify = True) {
     my $parent = $*DOC-NODE-PARENT;
     my @para;
     for $parent.paragraphs -> $p {
@@ -231,7 +224,7 @@ sub replace-paragraph($from, $to) {
         }
     }
     $parent.set-paragraphs(@para);
-    $*DOC-CHANGED = True;
+    $*DOC-CHANGED = $modify;
 
 }
 
@@ -387,11 +380,6 @@ multi sub ast-node(RakuAST::Doc::Markup:D $m) {
     traverse-ast($m);
 }
 
-multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'head') {
-    chomp-paragraphs($b);
-    traverse-ast($b)
-}
-
 multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'item') {
     with $b.config<example> {
         indir $BASE, {
@@ -403,9 +391,6 @@ multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'item') {
                 $*DOC-CHANGED = True;
             }
         }
-    }
-    else {
-        chomp-paragraphs($b);
     }
     nextsame;
 }
@@ -449,7 +434,32 @@ multi sub traverse-ast(Str:D $doc) {
 
     return Nil unless $*DOC-CHANGED;
 
-    $ast.DEPARSE
+    # Workaround a bug in the DEPARSE implementation where extra newlines are added
+    my role ItemDeparse {
+        multi method deparse(RakuAST::Doc::Block:D $ast --> Str:D) {
+            nextsame unless $ast.type eq 'item' | 'head';
+            my $deparsed = callsame();
+            CATCH {
+                note "THROWN FOR ", $ast;
+                note "   para: ", $ast.paragraphs[*-1];
+            }
+            my $last-line;
+            given $ast.paragraphs[*-1] {
+                when Str {
+                    $last-line = $_;
+                }
+                when RakuAST::Doc::Paragraph {
+                    $last-line = .atoms[*-1];
+                }
+                default {
+                    return $deparsed;
+                }
+            }
+            my $new-lines = .<nl>.Str given $last-line ~~ /[^^ || \N] $<nl>=\n*$/;
+            return $deparsed.trim-trailing ~ $new-lines;
+        }
+    }
+    $ast.DEPARSE(ItemDeparse);
 }
 
 
