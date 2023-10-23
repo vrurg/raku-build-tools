@@ -438,6 +438,7 @@ multi sub traverse-ast(Str:D $doc) {
     my role ItemDeparse {
         multi method deparse(RakuAST::Doc::Block:D $ast --> Str:D) {
             nextsame unless $ast.type eq 'item' | 'head';
+
             my $deparsed = callsame();
             CATCH {
                 note "THROWN FOR ", $ast;
@@ -456,7 +457,7 @@ multi sub traverse-ast(Str:D $doc) {
                 }
             }
             my $new-lines = .<nl>.Str given $last-line ~~ /[^^ || \N] $<nl>=\n*$/;
-            return $deparsed.trim-trailing ~ $new-lines;
+            return $deparsed.trim-trailing ~ ($ast.abbreviated ?? $new-lines !! "\n\n");
         }
     }
     $ast.DEPARSE(ItemDeparse);
