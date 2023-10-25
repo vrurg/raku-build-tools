@@ -415,8 +415,7 @@ multi sub ast-node(RakuAST::Doc::Block:D $ex where *.type eq 'EXAMPLE') {
 
     # tr-note "EXAMPLE FILE: ", $example;
     my $ex-para = make-example-paragraph($example);
-    replace-paragraph($ex, $ex-para);
-    $*DOC-CHANGED = True;
+    replace-paragraph($ex, $ex-para, :modify);
 }
 
 multi sub ast-node(RakuAST::Node:D $node) {
