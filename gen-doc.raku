@@ -224,7 +224,7 @@ sub replace-paragraph($from, $to, :$modify = True) {
         }
     }
     $parent.set-paragraphs(@para);
-    $*DOC-CHANGED = $modify;
+    $*DOC-CHANGED = 'replace-paragraph' if $modify;
 
 }
 
@@ -291,7 +291,7 @@ sub make-example-paragraph(IO() $example) {
         my $ex-relative = $example.relative;
         my %config =
             config-adverb("example", ~$ex-relative),
-            config-adverb("mtime", $example.modified.ceiling);
+            config-adverb("mtime", $example.modified.to-posix.head.ceiling);
 
         $ex-para = RakuAST::Doc::Block.new(:type<item>, :%config);
 
@@ -372,7 +372,7 @@ multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
 
         $markup.set-meta($link);
 
-        $*DOC-CHANGED = True;
+        $*DOC-CHANGED = 'module link';
     }
 }
 
@@ -384,11 +384,12 @@ multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'item') {
     with $b.config<example> {
         indir $BASE, {
             my $example = $b.config<example>.EVAL.IO;
-            my $mtime = $b.config<mtime>.EVAL;
+            my $mtime = Instant.from-posix($b.config<mtime>.EVAL);
 
             if $example.modified > $mtime {
                 update-example($b, $example);
-                $*DOC-CHANGED = True;
+                $b.set-config: %( |$b.config, config-adverb('mtime', $example.modified.to-posix.head.ceiling));
+                $*DOC-CHANGED = 'example updated';
             }
         }
     }
@@ -432,6 +433,8 @@ multi sub traverse-ast(Str:D $doc) {
     traverse-ast $ast;
 
     return Nil unless $*DOC-CHANGED;
+
+    note "Doc changed reason: ", $*DOC-CHANGED if $VERBOSE;
 
     # Workaround a bug in the DEPARSE implementation where extra newlines are added
     my role ItemDeparse {
@@ -543,6 +546,11 @@ multi gen-fmt('md', $src, $base, :$output) {
     my $md-dest = make-dest($src, $base, 'md', :$output);
     my $md-mtime = $md-dest.modified;
     if !$md-dest.e || $src.IO.modified > $md-mtime || $*PROGRAM.modified > $md-mtime {
+        note "Modified {$src}\n",
+             "  markdown: ", $md-mtime, " // ", $md-mtime.DateTime, "\n",
+             "  source  : ", $src.IO.modified, " // ", $src.IO.modified.DateTime, "\n",
+             "  program : ", $*PROGRAM.modified, " // ", $*PROGRAM.modified.DateTime
+            if $VERBOSE;
         say "===> Generating ", |($VERBOSE ?? $src ~ " --> " !! Empty), ~$md-dest;
         invoke-raku $src, $md-dest, 'Markdown';
     }
