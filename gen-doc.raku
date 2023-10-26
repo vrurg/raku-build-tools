@@ -164,7 +164,8 @@ role ASTContext {
 }
 
 class ASTLink does ASTContext {
-    has $.is-mod-link = True;
+    has $.is-mod-link = False;
+    has $.certainly-not = False;
     has $.text-node;
 
     method checkin {
@@ -173,14 +174,19 @@ class ASTLink does ASTContext {
     }
 
     method checkout {
-        return unless $!is-mod-link;
+        return if $!certainly-not;
+
+        # It can be a link to a module, but let's make sure first.
+        my $it-can-be = True;
 
         my $cur-node = $*DOC-NODE;
-        $!is-mod-link &&= @*DOC-NODE-CHILDREN < 2;
+        $!certainly-not ||=  @*DOC-NODE-CHILDREN > 1;
+        $it-can-be &&= @*DOC-NODE-CHILDREN < 2;
 
-        if $!is-mod-link && $cur-node.letter eq 'C' {
+        if $it-can-be && $cur-node.letter eq 'C' {
             if $cur-node.atoms.head ~~ &RxMod {
                 $!text-node = $cur-node;
+                $!is-mod-link = True;
             }
         }
     }
