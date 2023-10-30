@@ -721,6 +721,9 @@ multi sub fixup-fmt('html', IO() $output) {
 
     if $modified {
         $html.findnodes(q«//head/title»).head.appendText($*DOC-TITLE);
+        with $html.findnodes(q«//body//h1[contains(., "rakudoc")]»).head {
+            .unbindNode;
+        }
         $output.spurt: $html.Str(:options(XML_SAVE_AS_HTML));
     }
 }
@@ -868,7 +871,7 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
             my $*DOC-IN-IDX = True;
             patch-a-doc($pod-file);
 
-            my $doc-title := $*DOC-TITLE;
+            my $doc-title = $title // $*DOC-TITLE;
             my $doc-in-idx = $*DOC-IN-IDX;
 
             if $*DOC-IN-IDX {
@@ -879,7 +882,7 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
                 next unless %into{$fmt};
                 $wm.do-async: {
                     my $*DOC-OUT-FMT = $fmt;
-                    my $*DOC-TITLE = $title // $doc-title; # Retranslate the dynamic in this context.
+                    my $*DOC-TITLE = $doc-title; # Retranslate the dynamic in this context.
                     my $*DOC-IN-IDX := $doc-in-idx;
                     update-doc-index $reference, |($fmt => gen-fmt($fmt, $pod-file, :$output).IO.relative($BASE));
                 }
