@@ -2,15 +2,35 @@
 use v6.e.PREVIEW;
 use experimental :rakuast;
 use Async::Workers;
+use Cmark::Native;
+use Cmark;
+use Digest::SHA256::Native;
+use JSON::Fast;
+use LibXML::Document :HTML;
+use LibXML::Enums;
+use LibXML;
+use OO::Monitors;
+use Template::Mustache;
 use URI;
 
 my $VERBOSE = False;
 my $MAIN-MOD = %*ENV<MAIN_MOD>;
+my $META-MOD;
 my $MODULE := Mu;
-my $BASE;
+my IO::Path $BASE;
+my IO::Path $DOC-DIR;
+my IO::Path $DOCS-DIR;
 my $MOD-VERSION;
+my $MOD-AUTH;
 my $FORCE = False;
 my $URL;
+
+my Lock:D $index-lock .= new;
+my $INDEX-STATE;
+my $INDEX-STATE-SUM = "";
+my $INDEX-FILE;
+my $INDEX-TEMPLATE;
+my %DOC-IDX;
 
 $*OUT.out-buffer = 0;
 $*ERR.out-buffer = 0;
@@ -81,27 +101,23 @@ class MyPOD-Actions {
     has Bool $.replaced is rw = False;
     has $!ver-str = ~$MOD-VERSION;
     has $.pod-file;
-    has $.dest-file-dir;
-
-    submethod TWEAK {
-        $!dest-file-dir //= IO::Spec::Unix.catfile($BASE, make-dest($!pod-file, $BASE, 'md')).IO.parent(1);
-    }
 
     method version($/) {
         $.replaced ||= Version.new(~$/) ≠ $MOD-VERSION;
         make $!ver-str;
     }
 
-    method !link-file-from-top-level($/, $file, Str $subdir?) {
-        my $file-path = IO::Spec::Unix.catfile(|($_ with $subdir), ~$file);
-        unless $BASE.IO.add($file-path).e {
+    method !link-file-from-top-level($/, $file, Str $subdir = ".") {
+        my $file-path = $BASE.IO.add( IO::Spec::Unix.catfile(|($_ with $subdir), ~$file) );
+        unless $file-path.e {
             note "!!! WARNING !!! Missing file '" ~ $file-path ~ "' in macro " ~ $*MACRO-KEYWORD;
         }
-        my $url-path = ~$file-path.IO.relative($!dest-file-dir);
+        my $rel-path = $file-path.resolve.relative($BASE);
+        my $url-path = 'file:' ~ $rel-path;
         $.replaced = True;
         my $lbr = $*MACRO-LBRACE || '«';
         my $rbr = $*MACRO-RBRACE || '»';
-        make "L{$lbr}I{$lbr}" ~ $file ~ "$rbr|" ~ $url-path ~ $rbr
+        make "L{$lbr}I{$lbr}" ~ $rel-path ~ "$rbr|" ~ $url-path ~ $rbr
     }
 
     proto method unwrap-macro(|) {*}
@@ -119,7 +135,7 @@ class MyPOD-Actions {
     }
 
     multi method unwrap-macro($/, 'TEST', $file is copy) {
-        my $tdir = $BASE.IO.add('t');
+        my $tdir = $BASE.add('t');
         unless $tdir.add($file).e {
             if $tdir.add($file ~ '.rakutest').e {
                 $file ~= '.rakutest';
@@ -145,10 +161,10 @@ class MyPOD-Actions {
 }
 
 my regex RxMod {
-    $<module>=[ [ <.alpha> <.alnum>* ] ** 1..* % '::' ]
+    $<module>=[ '..::'? [ <.alpha> <.alnum>* ] ** 1..* % '::' ]
     [
-        [ ':auth<' $<author>=[ .*? <?before '>'> ] '>' ]
-        | [ ':ver<' $<version>=[ .*? <?before '>'> ] '>' ]
+        [ ':auth<' $<auth>=[ .*? <?before '>'> ] '>' ]
+        | [ ':ver<' $<ver>=[ .*? <?before '>'> ] '>' ]
     ]*
     $<smile>=[ ':' D | U | _ ]?
 }
@@ -165,6 +181,7 @@ role ASTContext {
 
 class ASTLink does ASTContext {
     has $.is-mod-link = False;
+    has $.is-file-link = False;
     has $.certainly-not = False;
     has $.text-node;
 
@@ -180,13 +197,19 @@ class ASTLink does ASTContext {
         my $it-can-be = True;
 
         my $cur-node = $*DOC-NODE;
-        $!certainly-not ||=  @*DOC-NODE-CHILDREN > 1;
-        $it-can-be &&= @*DOC-NODE-CHILDREN < 2;
+        $!certainly-not ||=  $cur-node.atoms > 1;
+        $it-can-be &&= $cur-node.atoms < 2;
 
-        if $it-can-be && $cur-node.letter eq 'C' {
-            if $cur-node.atoms.head ~~ &RxMod {
+        if $it-can-be  {
+            if $cur-node.letter eq 'C' {
+                if $cur-node.atoms.head ~~ &RxMod {
+                    $!text-node = $cur-node;
+                    $!is-mod-link = True;
+                }
+            }
+            elsif $cur-node.letter eq 'I' {
                 $!text-node = $cur-node;
-                $!is-mod-link = True;
+                $!is-file-link = True;
             }
         }
     }
@@ -294,7 +317,7 @@ sub make-example-paragraph(IO() $example) {
     my $ex-para;
 
     indir $BASE, {
-        my $ex-relative = $example.relative;
+        my $ex-relative = $example.relative($BASE);
         my %config =
             config-adverb("example", ~$ex-relative),
             config-adverb("mtime", $example.modified.to-posix.head.ceiling);
@@ -304,9 +327,9 @@ sub make-example-paragraph(IO() $example) {
         $ex-para.add-paragraph("From ");
         $ex-para.add-paragraph:
             RakuAST::Doc::Markup.new(
-                :letter<L>, :opener("<"), :closer(">"),
+                :letter<L>, :opener("«"), :closer("»"),
                 atoms => ( ~$ex-relative ),
-                meta => ( ~$example.relative($*DEST-FILE-DIR) )
+                meta => ( 'file:' ~ $ex-relative )
             );
         $ex-para.add-paragraph: "\n\n";
 
@@ -344,41 +367,87 @@ sub update-example($ex-para, IO() $example) {
 proto sub ast-node(|) {*}
 
 multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
-    return traverse-ast($markup) if $markup.meta;
 
     my $ctx = ASTLink.new;
     enter-ast-ctx $markup, $ctx;
 
+    my $meta = $markup.meta.head // "";
+
+    unless $meta ~~ /^ \w+ ":"/ {
+        # XXX Temporary, fix examples link
+        # Skip if starts with scheme
+        if $meta.contains('/examples/') && $*FMT-REFERENCE-DIR.add($meta).e {
+            my $link = 'file:' ~ $*FMT-REFERENCE-DIR.add($meta).resolve.relative($BASE);
+            $markup.set-meta($link);
+            $*DOC-CHANGED = 'example link';
+        }
+    }
+
     if $ctx.is-mod-link {
-        my $m = $ctx.text-node.atoms.head ~~ &RxMod;
-
-        $ctx.text-node.set-atoms($m<module> ~ $m<smile>);
-
-        my $mod-name = ~$m<module>;
         my $link;
 
-        if $mod-name ~~ /$MAIN-MOD <.wb>/ {
-            # Until rakudoc: schema is supported by standard tools, stick to 'md' format.
-            my $link-path = IO::Spec::Unix.catfile('docs', 'md', |$mod-name.split('::')) ~ '.md';
-            $link = ~$link-path.IO.relative($*DEST-FILE-DIR);
+        my $uri;
+        my $scheme = "";
+
+        if $meta ~~ rx{^ rakudoc ":" "//"? } {
+            $scheme = 'rakudoc';
         }
         else {
-            $link = 'https://raku.land/';
+            $uri = URI.new($meta);
+            $scheme = $uri.scheme;
+        }
 
-            if $m<author> {
-                $link ~= $m<author> ~ '/' ~ $m<module>;
-                if $m<version> {
-                    $link ~= '?v=' ~ $m<version>;
-                }
+        given $scheme {
+            when "" | "file" {
+                $link = "rakudoc:" ~ $ctx.text-node.atoms.head;
             }
-            else {
-                $link ~= '?q=' ~ $m<module>
+            when 'http' | 'https' {
+                if $uri.host eq 'raku.land' {
+                    if $uri.path.segments > 2 {
+                        my ($sidx, $auth) = $uri.path.segments.first(*.chars, :kv);
+                        my $ver = $uri.query-form<v>.head;
+                        my $mod = ($uri.path andthen .segments[$sidx + 1]);
+                        $link = 'rakudoc:' ~ $mod ~ ':auth<' ~ $auth ~ ">" ~ ($ver ?? ":ver<$ver>" !! "");
+                    }
+                    elsif $uri.query-form<q> -> $mod {
+                        $link = 'rakudoc:' ~ $mod;
+                    }
+                }
             }
         }
 
-        $markup.set-meta($link);
+        return without $link;
 
+        $markup.set-meta($link);
+        if $link.contains('>') {
+            $markup.set-opener('«');
+            $markup.set-closer('»');
+        }
         $*DOC-CHANGED = 'module link';
+    }
+    elsif $ctx.is-file-link {
+
+        my $link;
+        my $link-text;
+        my $uri = URI.new($meta);
+        # If host is specified it's not our business to mangle with this link.
+        return if $uri.host;
+
+        my $project-path;
+        if $uri.path.segments.head eq '..' | '.' {
+            my $rel-path = $*FMT-REFERENCE-DIR.add(~$uri.path).IO.resolve.relative($BASE);
+            $link = 'file:' ~ $rel-path;
+            $link-text = ~$rel-path;
+        }
+
+        return without $link;
+
+        $ctx.text-node.set-atoms($link-text);
+        $markup.set-meta($link);
+        $*DOC-CHANGED = 'file link';
+    }
+    else {
+        nextsame
     }
 }
 
@@ -400,6 +469,19 @@ multi sub ast-node(RakuAST::Doc::Block:D $b where *.type eq 'item') {
         }
     }
     nextsame;
+}
+
+multi sub ast-node(RakuAST::Doc::Block:D $cfg where *.type eq 'config') {
+    with $cfg.config<index> {
+        my $index = $*DOC-IN-IDX := .EVAL;
+        unless $index {
+            my $doc-ref = make-doc-reference($*DOC-OUTPUT // $*RAKUDOC-FILE);
+            update-doc-index($doc-ref, :$index);
+        }
+    }
+    with $cfg.config<title> {
+        $*DOC-TITLE = .EVAL;
+    }
 }
 
 multi sub ast-node(RakuAST::Doc::Block:D $ex where *.type eq 'EXAMPLE') {
@@ -487,19 +569,15 @@ multi sub traverse-ast(RakuAST::Node:D $node, &handler?) {
     $*CTX-STACK.checkout;
 }
 
-sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
+sub patch-a-doc(Str:D $pod-file --> Str) {
     note "===> Updating ", $pod-file if $VERBOSE;
     my Bool $backup = False;
     my $src = $pod-file.IO.slurp;
-    my $actions = MyPOD-Actions.new(
-        :$pod-file,
-        |(:dest-file-dir(.IO.parent(1)) with $output)
-    );
+    my $actions = MyPOD-Actions.new( :$pod-file );
     my $res = MyPOD.parse($src, :$actions);
 
     die "Failed to parse the source" unless $res;
 
-    my $*DEST-FILE-DIR = $actions.dest-file-dir;
     my $changed = traverse-ast($res.made);
 
     if $FORCE || $actions.replaced || $changed {
@@ -519,18 +597,22 @@ sub patch-a-doc(Str:D $pod-file, :$output --> Str) {
 }
 
 my $mdl = Lock.new;
-sub make-dest($src is copy, $base is copy, $fmt, :$output) {
+sub make-dest($src is copy, :$base is copy = $BASE, :$fmt = $*DOC-OUT-FMT, :$ext = $*DOC-OUT-EXT, :$output) {
     $mdl.protect: {
         if $VERBOSE {
-            $src = $src.IO.absolute;
-            $base = $base.IO.absolute;
+            $src = $src.absolute;
+            $base = $base.absolute;
             my @d = $*SPEC.splitdir($src.IO.relative($base))[1 ..*];
             note "___ from $src base:$base ---> ", ~$src.IO.relative($base);
-            note ">>>> [$fmt] ", @d.join(", "), " ---> ", my $res = $*SPEC.catdir('docs', $fmt,
+            note ">>>> [$ext] ", @d.join(", "), " ---> ", my $res = $*SPEC.catdir($DOCS-DIR, $ext,
                 |$*SPEC.splitdir($src.IO.relative($base))[1 ..*]);
-            note "!!! $src --- ", $res.IO.extension($fmt);
+            note "!!! $src --- ", $res.IO.extension($ext, :0parts);
         }
-        ($output || $*SPEC.catdir('docs', $fmt, |$*SPEC.splitdir($src.IO.relative($base))[1 ..*])).IO.extension($fmt);
+        ($output
+            ?? $output.IO.extension($ext, :0parts)
+            !! $*SPEC.catdir( $DOCS-DIR,
+                              $fmt,
+                              |$*SPEC.splitdir($src.IO.relative($base))[1 ..*]) ).IO.extension($ext);
     }
 }
 
@@ -547,77 +629,315 @@ sub invoke-raku($src, $dst, $fmt) {
     run |@cmd, :out($dfh);
 }
 
-proto gen-fmt(Str:D, $, $, *%) {*}
-multi gen-fmt('md', $src, $base, :$output) {
-    my $md-dest = make-dest($src, $base, 'md', :$output);
-    my $md-mtime = $md-dest.modified;
-    if !$md-dest.e || $src.IO.modified > $md-mtime || $*PROGRAM.modified > $md-mtime {
-        note "Modified {$src}\n",
-             "  markdown: ", $md-mtime, " // ", $md-mtime.DateTime, "\n",
-             "  source  : ", $src.IO.modified, " // ", $src.IO.modified.DateTime, "\n",
-             "  program : ", $*PROGRAM.modified, " // ", $*PROGRAM.modified.DateTime
-            if $VERBOSE;
-        say "===> Generating ", |($VERBOSE ?? $src ~ " --> " !! Empty), ~$md-dest;
-        invoke-raku $src, $md-dest, 'Markdown';
+proto sub translate-uri(Str:D, Str:D, |) {*}
+
+multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
+    nextsame unless my $m = $mod ~~ &RxMod;
+
+    my $auth = $m<auth>;
+    my $version = $m<ver>;
+    my $module = $m<module>;
+    my $fmt = $*DOC-OUT-FMT;
+
+    if $module.starts-with("..::")
+       || ($module ~~ /^ $MAIN-MOD <.wb> / && (!$auth || $auth eq $MOD-AUTH))
+    {
+        # Our local module.
+        my $link-path =
+            (%DOC-IDX{$module} andthen .{$fmt})
+            // IO::Spec::Unix.catfile($DOCS-DIR, $fmt, |$module.split('::')) ~ "." ~ $ext;
+        return $link-path.IO.relative($*FMT-OUT-DIR)
+    }
+
+    my $link = 'https://raku.land/';
+
+    if $auth {
+        $link ~= $auth ~ '/' ~ $module;
+        if $version {
+            $link ~= '?v=' ~ $version;
+        }
+    }
+    else {
+        $link ~= '?q=' ~ $module
+    }
+    $link
+}
+
+multi sub translate-uri('file', $path) {
+    $BASE.add($path).relative($*FMT-OUT-DIR)
+}
+
+multi sub translate-uri(Str:D, Str:D, |) { Nil }
+
+proto sub fixup-fmt(Str:D, |) {*}
+
+multi sub fixup-fmt('md', IO() $output) {
+    my $*FMT-OUT-DIR = $output.parent(1);
+    my $modified = False;
+
+    my sub traverse-cnode($cnode) {
+        my $next = $cnode;
+        while $next {
+            if $next.type eq 'link' {
+                my $url = cmark_node_get_url($next);
+                if $url ~~ rx{^ $<scheme>=\w+ ":" $<reference>=.+ $ } -> $m {
+                    my $scheme = ~$m<scheme>;
+                    with translate-uri($scheme, ~$m<reference>) {
+                        cmark_node_set_url($next, $_);
+                        $modified = True;
+                    }
+                }
+            }
+
+            traverse-cnode($_) with $next.first-child;
+
+            $next = $next.next;
+        }
+    }
+
+    my $cmark = Cmark.parse: $output.slurp(:close);
+
+    traverse-cnode($cmark.node);
+    if $modified {
+        $output.spurt: $cmark.to-commonmark;
     }
 }
-#multi gen-fmt('html', $src, $base, :$output) {
-#    my $html-dest = make-dest($src, $base, 'html', :$output);
-#    if !$html-dest.e || ($src.IO.modified > $html-dest.modified) {
-#        say "===> Generating ", ~$html-dest;
-#        invoke-raku $src, $html-dest, 'HTML';
-#    }
-#}
+
+multi sub fixup-fmt('html', IO() $output) {
+    my $*FMT-OUT-DIR = $output.parent(1);
+    my $modified = False;
+
+    my $config = LibXML::Config.new: :quiet, :with-cache, :max-errors(1_000_000);
+    my $parser = LibXML::Parser.new: :$config, :html;
+    my HTML $html = $parser.parse: $output.slurp(:close), :html, :huge, :recover(2), :recover-silently, :dtd;
+
+    for $html.findnodes(q«//a[starts-with(@href, "rakudoc:") or starts-with(@href, "file:")]») -> $node {
+        my ($scheme, $reference) = $node.getAttribute('href').split(":", 2);
+        with translate-uri($scheme, $reference) {
+            $node.setAttribute('href', $_);
+            $modified = True;
+        }
+    }
+
+    if $modified {
+        $html.findnodes(q«//head/title»).head.appendText($*DOC-TITLE);
+        $output.spurt: $html.Str(:options(XML_SAVE_AS_HTML));
+    }
+}
+
+sub dest-outdated(IO() $dest, +@src) {
+    return True unless $dest.e;
+    my $dest-mtime = $dest.modified;
+    ? ($*PROGRAM, |@src).first:
+        -> IO() $src {
+            $src.modified > $dest-mtime
+        }
+}
+
+proto gen-fmt(Str:D, $, *%) {*}
+multi gen-fmt('md', $src, :$output) {
+    my $*DOC-OUT-EXT = 'md';
+    my $md-dest = make-dest($src, :$output);
+    if dest-outdated($md-dest, $src) {
+        say "===> Generating ", ~$md-dest.relative($BASE);
+        invoke-raku $src, $md-dest, 'Markdown';
+        fixup-fmt('md', $md-dest);
+    }
+    $md-dest
+}
+multi gen-fmt('html', $src, :$output) {
+    my $*DOC-OUT-EXT = 'html';
+    my $html-dest = make-dest($src, :$output);
+    if dest-outdated($html-dest, $src) {
+        say "===> Generating ", ~$html-dest.relative($BASE);
+        invoke-raku $src, $html-dest, 'HTML';
+        fixup-fmt('html', $html-dest);
+    }
+    $html-dest
+}
 
 sub prepare-module {
     require ::($MAIN-MOD);
-    my $meta_mod = %*ENV<META_MOD> // $MAIN-MOD ~ '::META';
-    require ::($meta_mod);
+    my %meta;
+    my $meta_mod = ($META-MOD, $MAIN-MOD, $MAIN-MOD ~ '::META').first: -> $mmod {
+        next without $mmod;
+        (try { require ::($mmod); True })
+            && (try { %meta = ::('&' ~ $mmod ~ '::META6').() })
+    };
+    die "Can't fetch META6 hash, consider setting META_MOD environment variable or use --meta-mod" unless $meta_mod;
     $MODULE := ::($MAIN-MOD);
-    my %meta = ::('&' ~ $meta_mod ~ '::META6').();
     $MOD-VERSION = $MODULE.^ver // %meta<ver>;
+    $MOD-AUTH = $MODULE.^auth // %meta<auth>;
     $URL = S/\.git$// with %meta<source-url>;
 }
 
-sub gen-doc(+@pod-files, :$module, :$base, :$output, :%into) {
+sub update-doc-index(Str:D $reference, *%keys) {
+    $index-lock.protect: {
+        %DOC-IDX{$reference}{ .key } = .value for %keys;
+    }
+}
+
+sub save-doc-index() {
+    $index-lock.protect: {
+        my $state-json = to-json %DOC-IDX, :pretty, :sorted-keys;
+
+        # Do nothing if nothing has changed.
+        unless sha256-hex($state-json) eq $INDEX-STATE-SUM {
+            say "===> Index needs updating";
+            my IO::Handle:D $idxh = $INDEX-STATE.open(:w, :!shared);
+            LEAVE $idxh.close;
+            if $idxh.lock(:!shared) {
+                LEAVE $idxh.unlock;
+
+                $idxh.spurt: $state-json;
+            }
+            else -> $failure {
+                $failure.exception.rethrow
+            }
+        }
+    }
+}
+
+sub read-doc-index {
+    $index-lock.protect: {
+        if $INDEX-STATE.open(:r, :shared) -> IO::Handle:D $idxh {
+            LEAVE $idxh.close;
+            if $idxh.lock(:shared) {
+                LEAVE $idxh.unlock;
+
+                my $idx-json = $idxh.slurp;
+
+                $INDEX-STATE-SUM = sha256-hex $idx-json;
+
+                if $idx-json {
+                    %DOC-IDX = from-json $idx-json;
+                }
+            }
+            else -> $failure {
+                $failure.exception.rethrow
+            }
+        }
+    }
+}
+
+sub refresh-index {
+    if %DOC-IDX {
+        if dest-outdated($INDEX-FILE, $INDEX-STATE, $INDEX-TEMPLATE) {
+            if $INDEX-FILE.open(:w) -> $doch {
+                my %tpl-data =
+                    'main-mod' => $MAIN-MOD,
+                    rakudoc =>
+                        %DOC-IDX
+                            .grep({ .value<index> // True })
+                            .sort(*.value)
+                            .map({ %( doc-reference => .key, doc-title => .value<doc-title> ) });
+                $doch.spurt:
+                    Template::Mustache.render($INDEX-TEMPLATE, %tpl-data);
+            }
+            else -> $failure {
+                $failure.exception.rethrow
+            }
+        }
+    }
+}
+
+sub make-doc-reference(IO() $doc-file) {
+    my $parts = $doc-file.extension eq 'rakudoc' ?? 1 !! 0;
+    $*SPEC.splitdir( $doc-file.relative($DOC-DIR).IO.extension("", :$parts) ).join("::");
+}
+
+sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
     $MAIN-MOD = $_ with $module;
-    $BASE = $base;
     prepare-module;
-    my $wm = Async::Workers.new(:max-workers(1 || $*KERNEL.cpu-cores));
+    my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
+        my $*RAKUDOC-FILE = $pod-file;
+        my $*DOC-OUTPUT := $output;
+        my $md-sample = make-dest($pod-file, :fmt<md>, :ext<md>).parent(1).resolve;
+        my $*FMT-REFERENCE-DIR = $md-sample.parent(1).resolve;
         note "??? $pod-file" if $VERBOSE;
         $wm.do-async: {
-            CATCH {
-                note $_;
-                note ~.backtrace;
-                exit 1;
+            my $reference = make-doc-reference($output || $pod-file);
+
+            my $*DOC-TITLE;
+            $index-lock.protect: {
+                %DOC-IDX{$reference}<index> //= True;
+                $*DOC-TITLE //= (%DOC-IDX{$reference} andthen .<title> ) // $reference;
             }
-            patch-a-doc($pod-file, :$output);
+
+            my $*DOC-IN-IDX = True;
+            patch-a-doc($pod-file);
+
+            my $doc-title := $*DOC-TITLE;
+            my $doc-in-idx = $*DOC-IN-IDX;
+
+            if $*DOC-IN-IDX {
+                update-doc-index($reference, :$doc-title);
+            }
+
             for %into.keys -> $fmt {
                 next unless %into{$fmt};
                 $wm.do-async: {
                     my $*DOC-OUT-FMT = $fmt;
-                    gen-fmt $fmt, $pod-file, $base, :$output;
+                    my $*DOC-TITLE = $title // $doc-title; # Retranslate the dynamic in this context.
+                    my $*DOC-IN-IDX := $doc-in-idx;
+                    update-doc-index $reference, |($fmt => gen-fmt($fmt, $pod-file, :$output).IO.relative($BASE));
                 }
             }
         }
     }
     await $wm;
     $wm.shutdown;
+
+    save-doc-index;
 }
 
-multi MAIN (+@pod-files, Str :m(:module($module))!, Str() :$base = $*CWD, Bool :v(:verbose($verbose)),
-            Bool :f(:force($force)) = False,
-            Bool :$md = False, Bool :$html = False) {
+multi sub MAIN( +@rakudoc-file,
+                Str :m(:$module)!,
+                :$meta-mod = %*ENV<META_MOD>,
+                IO::Path:D(Str:D) :$base = $*CWD,
+                Bool :v(:$verbose),
+                Bool :f(:$force) = False,
+                Bool :$md = False,
+                Bool :$html = False,
+                #| Generate index file
+                Bool :$index = False,
+                #| Defaults to $BASE_DIR/doc/INDEX.rakudoc
+                IO(Str) :$index-file,
+                #| Defaults to $BASE_DIR/.gen-doc-index.json
+                IO(Str) :$index-state,
+                #| Defaults to $BUILD_TOOLS_DIR/gen-doc-index.mustache
+                IO(Str) :$index-template,
+                #| Defaults to $BASE_DIR/INDEX
+                Str :$index-output,
+                #| Default title, only works for a single input
+                Str :$title,
+                Str :o(:$output) )
+{
+    with ($output // $title) {
+        if @rakudoc-file != 1 && (@rakudoc-file == 0 && $index) {
+            die "Exactly one RakuDoc input file is required with any of --output, or --title";
+        }
+    }
+
     $VERBOSE = $_ with $verbose;
     $FORCE = $force;
-    my @psorted = @pod-files.race.map({ [$_, .IO.s] }).sort({ @^b[1] cmp @^a[1] }).map({ .[0] });
-    gen-doc(@psorted, :$module, :$base, :into{ :$md, :$html });
-}
-multi MAIN (Str:D $pod-file, Str :m(:module($module))!, Str() :$base = $*CWD, Str :o(:output($output))?,
-            Bool :v(:verbose($verbose)), Bool :f(:force($force)) = False,
-            Bool :$md = False, Bool :$html = False) {
-    $VERBOSE = $_ with $verbose;
-    $FORCE = $force;
-    gen-doc($pod-file, :$module, :$output, :$base, :into{ :$md, :$html });
+    $META-MOD = $_ with $meta-mod;
+    $BASE = $base;
+    $DOC-DIR = $BASE.add: %*ENV<DOC_DIR> // 'doc';
+    $DOCS-DIR = $BASE.add: %*ENV<DOCS_DIR> // 'docs';
+    $INDEX-STATE = $index-state // $BASE.add('.gen-doc-index.json');
+    $INDEX-FILE = $index-file // $DOC-DIR.add('INDEX.rakudoc');
+    $INDEX-TEMPLATE = $index-template // $*PROGRAM.parent(1).add('gen-doc-index.mustache');
+
+    read-doc-index;
+
+    my @psorted = @rakudoc-file.race.map({ [$_, .IO.s] }).sort({ @^b[1] cmp @^a[1] }).map({ .[0] });
+    gen-doc(@psorted, :$module, :into{ :$md, :$html }, :$output, :$title);
+
+    if $index {
+        refresh-index;
+        # Use --output for INDEX unless there is an input .rakudoc
+        gen-doc(~$INDEX-FILE, :$module, :into{ :$md, :$html }, :output($index-output // $BASE.add('INDEX')));
+    }
 }

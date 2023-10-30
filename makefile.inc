@@ -55,7 +55,8 @@ DIST_FILES:=$(shell git ls-files -z)
 CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
 
-DEPENDECIES=fez Async::Workers Pod::To::Markdown App::Prove6
+DEPENDECIES = fez Async::Workers Pod::To::Markdown App::Prove6 URI LibXML \
+		      Digest::SHA256::Native OO::Monitors Template::Mustache JSON::Fast
 
 PRECOMP_DIRS?=$(shell find . -type d -name '.precomp')
 BK_FILES?=$(shell find . -name '*.bk')
@@ -81,7 +82,7 @@ ifneq ("","$(wildcard $(DOC_SRC_DIR)/ChangeLog.rakudoc)")
 	CHANGELOG_SRC?=$(DOC_SRC_DIR)/ChangeLog.rakudoc
 endif
 
-export MAIN_MOD META_MOD RAKU_OPTS
+export MAIN_MOD META_MOD RAKU_OPTS DOCS_DIR DOC_DIR
 
 .SUFFXES: .md .rakudoc
 
@@ -120,9 +121,9 @@ $(DOC_BUILDER) $(META_BUILDER):
 
 doc: docs_dirs doc_gen
 
-#docs_dirs: | $(MD_SUBDIRS) $(HTML_SUBDIRS)
+docs_dirs: | $(MD_SUBDIRS) $(HTML_SUBDIRS)
 
-docs_dirs: | $(MD_SUBDIRS)
+# docs_dirs: | $(MD_SUBDIRS)
 
 $(MD_SUBDIRS) $(HTML_SUBDIRS):
 	$(NOECHO)echo "===> mkdir" $@
@@ -130,11 +131,12 @@ $(MD_SUBDIRS) $(HTML_SUBDIRS):
 
 doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation sources"
-	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) -md $(DOC_SRC)
-	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./README.md $(README_SRC)
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html $(DOC_SRC)
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --title='README' --output=./README $(README_SRC)
 ifdef CHANGELOG_SRC
-	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --output=./ChangeLog.md $(CHANGELOG_SRC)
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --output=./ChangeLog $(CHANGELOG_SRC)
 endif
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --index --index-output=./INDEX
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
