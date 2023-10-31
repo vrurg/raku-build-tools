@@ -376,10 +376,16 @@ multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
     unless $meta ~~ /^ \w+ ":"/ {
         # XXX Temporary, fix examples link
         # Skip if starts with scheme
-        if $meta.contains('/examples/') && $*FMT-REFERENCE-DIR.add($meta).e {
-            my $link = 'file:' ~ $*FMT-REFERENCE-DIR.add($meta).resolve.relative($BASE);
-            $markup.set-meta($link);
-            $*DOC-CHANGED = 'example link';
+        if $meta.contains('/examples/') {
+            if $*FMT-REFERENCE-DIR.add($meta).e {
+                my $link = 'file:' ~ $*FMT-REFERENCE-DIR.add($meta).resolve.relative($BASE);
+                $markup.set-meta($link);
+                $*DOC-CHANGED = 'example link';
+            }
+            else {
+                note "!!! WARNING: no destination file found for " ~ $markup.DEPARSE, " in " ~ $*RAKUDOC-FILE, "\n",
+                     "    EXPECTED to be found as " ~ $*FMT-REFERENCE-DIR.add($meta).resolve;
+            }
         }
     }
 
@@ -502,7 +508,6 @@ multi sub ast-node(RakuAST::Doc::Block:D $ex where *.type eq 'EXAMPLE') {
         $example ~= '.raku';
     }
 
-    # tr-note "EXAMPLE FILE: ", $example;
     my $ex-para = make-example-paragraph($example);
     replace-paragraph($ex, $ex-para, :modify);
 }
@@ -555,7 +560,6 @@ multi sub traverse-ast(Str:D $doc) {
 
 
 multi sub traverse-ast(RakuAST::Node:D $node, &handler?) {
-    # tr-note($node.^name) if $VERBOSE;
     my $level = $*DOC-AST-LEVEL + 1;
     my $*DOC-NODE-PARENT = $node;
     my @*DOC-NODE-CHILDREN;
@@ -646,7 +650,11 @@ multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
         my $link-path =
             (%DOC-IDX{$module} andthen .{$fmt})
             // IO::Spec::Unix.catfile($DOCS-DIR, $fmt, |$module.split('::')) ~ "." ~ $ext;
-        return $link-path.IO.relative($*FMT-OUT-DIR)
+        my $link-dest = $link-path.IO.relative($*FMT-OUT-DIR);
+        unless $link-path.IO.e {
+            note "!!! Warning: no destination '$link-path' found for local rakudoc '" ~ $module ~ "' in " ~ $*RAKUDOC-FILE;
+        }
+        return $link-dest;
     }
 
     my $link = 'https://raku.land/';
@@ -664,7 +672,11 @@ multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
 }
 
 multi sub translate-uri('file', $path) {
-    $BASE.add($path).relative($*FMT-OUT-DIR)
+    my $dest = $BASE.add($path);
+    unless $dest.e {
+        note "!!! Warning: missing file: link destination file " ~ $dest ~ " for " ~ $path ~ " in " ~ $*RAKUDOC-FILE;
+    }
+    $dest.relative($*FMT-OUT-DIR)
 }
 
 multi sub translate-uri(Str:D, Str:D, |) { Nil }
@@ -834,6 +846,13 @@ sub refresh-index {
                             .grep({ .value<index> // True })
                             .sort(*.value)
                             .map({ %( doc-reference => .key, doc-title => .value<doc-title> ) });
+
+                my $mustache-logger = Template::Mustache::Logger.new: :level('Warn');
+                for <Warn Error Fatal> -> $level {
+                    $mustache-logger.routines{$level} = -> $lvl, $ex {
+                        note "!!! Template $level: ", $ex.message;
+                    };
+                }
                 $doch.spurt:
                     Template::Mustache.render($INDEX-TEMPLATE, %tpl-data);
             }
@@ -854,12 +873,12 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
     prepare-module;
     my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
-        my $*RAKUDOC-FILE = $pod-file;
-        my $*DOC-OUTPUT := $output;
-        my $md-sample = make-dest($pod-file, :fmt<md>, :ext<md>).parent(1).resolve;
-        my $*FMT-REFERENCE-DIR = $md-sample.parent(1).resolve;
         note "??? $pod-file" if $VERBOSE;
         $wm.do-async: {
+            my $*RAKUDOC-FILE = $pod-file;
+            my $*DOC-OUTPUT := $output;
+            my $md-sample = make-dest($pod-file, :fmt<md>, :ext<md>).parent(1).resolve;
+            my $*FMT-REFERENCE-DIR = $md-sample.parent(1).resolve;
             my $reference = make-doc-reference($output || $pod-file);
 
             my $*DOC-TITLE;
@@ -881,6 +900,8 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
             for %into.keys -> $fmt {
                 next unless %into{$fmt};
                 $wm.do-async: {
+                    my $*RAKUDOC-FILE = $pod-file;
+                    my $*DOC-OUTPUT := $output;
                     my $*DOC-OUT-FMT = $fmt;
                     my $*DOC-TITLE = $doc-title; # Retranslate the dynamic in this context.
                     my $*DOC-IN-IDX := $doc-in-idx;
