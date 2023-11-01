@@ -56,7 +56,8 @@ CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
 
 DEPENDECIES = fez Async::Workers Pod::To::Markdown App::Prove6 URI LibXML \
-		      Digest::SHA256::Native OO::Monitors Template::Mustache JSON::Fast
+		      Digest::SHA256::Native OO::Monitors Template::Mustache JSON::Fast \
+			  Cmark
 
 PRECOMP_DIRS?=$(shell find . -type d -name '.precomp')
 BK_FILES?=$(shell find . -name '*.bk')
