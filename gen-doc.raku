@@ -32,6 +32,12 @@ my $INDEX-FILE;
 my $INDEX-TEMPLATE;
 my %DOC-IDX;
 
+# Keys are link destination files, values are sets of documents where linked from.
+my %LINK-DEST;
+my $LINK-DEST-STATE;
+my $DO-LINK-CHECK = False;
+my $link-dest-lock = Lock.new;
+
 $*OUT.out-buffer = 0;
 $*ERR.out-buffer = 0;
 
@@ -109,9 +115,9 @@ class MyPOD-Actions {
 
     method !link-file-from-top-level($/, $file, Str $subdir = ".") {
         my $file-path = $BASE.IO.add( IO::Spec::Unix.catfile(|($_ with $subdir), ~$file) );
-        unless $file-path.e {
-            note "!!! WARNING !!! Missing file '" ~ $file-path ~ "' in macro " ~ $*MACRO-KEYWORD;
-        }
+        # unless $file-path.e {
+        #     note "!!! WARNING !!! Missing file '" ~ $file-path ~ "' in macro " ~ $*MACRO-KEYWORD;
+        # }
         my $rel-path = $file-path.resolve.relative($BASE);
         my $url-path = 'file:' ~ $rel-path;
         $.replaced = True;
@@ -633,6 +639,93 @@ sub invoke-raku($src, $dst, $fmt) {
     run |@cmd, :out($dfh);
 }
 
+sub read-missing-links {
+    if $LINK-DEST-STATE.open(:r, :shared) -> IO::Handle:D $fh {
+        LEAVE $fh.close;
+        if $fh.lock(:shared) {
+            LEAVE $fh.unlock;
+            if $fh.slurp.trim -> $link-json {
+                %LINK-DEST = from-json($link-json);
+                with %LINK-DEST<rakudoc> -> %rakudocs {
+                    for %rakudocs.values -> %abs-rakudoc {
+                        %abs-rakudoc{$_} .= SetHash for %abs-rakudoc.keys;
+                    }
+                }
+            }
+        }
+        else -> $failure {
+            $failure.exception.rethrow
+        }
+    }
+}
+
+sub save-missing-links {
+    my $fh = $LINK-DEST-STATE.open(:w, :!shared);
+    LEAVE $fh.close;
+    if $fh.lock(:!shared) {
+        LEAVE $fh.unlock;
+        $fh.spurt: %LINK-DEST ?? to-json(%LINK-DEST) !! '';
+    }
+    else -> $failure {
+        $failure.exception.rethrow
+    }
+}
+
+sub register-link-dest(Str:D $scheme, IO:D() $link-path, Str:D() $for, Bool :$missing) {
+    $link-dest-lock.protect: {
+        my $abs-dest = $link-path.absolute($BASE);
+        my $abs-rakudoc = $*RAKUDOC-FILE.IO.absolute($BASE);
+        if $missing {
+            %LINK-DEST<missing>{$abs-dest} //= %(:$scheme, :$for);
+        }
+        (%LINK-DEST<rakudoc>{$abs-rakudoc}{$*DOC-OUT-FMT} //= SetHash.new).set: $abs-dest;
+    }
+}
+
+sub cleanup-link-dest {
+    with $*RAKUDOC-FILE {
+        my $abs-rakudoc = .IO.absolute($BASE);
+        with $*DOC-OUT-FMT {
+            %LINK-DEST<rakudoc>{$abs-rakudoc}.DELETE-KEY($_);
+        }
+    }
+}
+
+sub check-missing-links {
+    $link-dest-lock.protect: {
+        say "===> Checking for missing link destinations";
+        # Delete references to no more existing rakudocs
+        my %registered-dest;
+
+        for %LINK-DEST<rakudoc>.pairs -> (:key($abs-rakudoc), :value(%fmts)) {
+            if $abs-rakudoc.IO.e {
+                for %fmts.values -> $destinations {
+                    (%registered-dest{$_} //= SetHash.new).set($abs-rakudoc) for $destinations.keys;
+                }
+            }
+            else {
+                %LINK-DEST.DELETE-KEY($abs-rakudoc);
+            }
+        }
+
+        for %LINK-DEST<missing>.sort(*.key) -> (:key($link-path), :value(%details)) {
+            if %registered-dest.EXISTS-KEY($link-path) && !$link-path.IO.e {
+                note "!!! WARNING !!! Missing target file for for local link '", %details<scheme>,
+                     ":", %details<for>, "':\n",
+                     "                destination: ", $link-path.IO.relative($BASE), "\n",
+                     "                   found in: ",
+                    %registered-dest{$link-path}
+                        .keys.sort.kv
+                        .map(-> $idx, $in { $in.IO.relative($BASE).indent($idx ?? 29 !! 0) })
+                        .join("\n");
+            }
+            else {
+                %LINK-DEST<missing>.DELETE-KEY($link-path);
+            }
+        }
+    }
+}
+
 proto sub translate-uri(Str:D, Str:D, |) {*}
 
 multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
@@ -651,8 +744,11 @@ multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
             (%DOC-IDX{$module} andthen .{$fmt})
             // IO::Spec::Unix.catfile($DOCS-DIR, $fmt, |$module.split('::')) ~ "." ~ $ext;
         my $link-dest = $link-path.IO.relative($*FMT-OUT-DIR);
-        unless $link-path.IO.e {
-            note "!!! Warning: no destination '$link-path' found for local rakudoc '" ~ $module ~ "' in " ~ $*RAKUDOC-FILE;
+        if $link-path.IO.e {
+            register-link-dest('rakudoc', $link-path, $module);
+        }
+        else {
+            register-link-dest('rakudoc', $link-path, $module, :missing);
         }
         return $link-dest;
     }
@@ -674,7 +770,7 @@ multi sub translate-uri('rakudoc', $mod, :$ext = $*DOC-OUT-EXT) {
 multi sub translate-uri('file', $path) {
     my $dest = $BASE.add($path);
     unless $dest.e {
-        note "!!! Warning: missing file: link destination file " ~ $dest ~ " for " ~ $path ~ " in " ~ $*RAKUDOC-FILE;
+        register-link-dest('file', $dest, $path, :missing);
     }
     $dest.relative($*FMT-OUT-DIR)
 }
@@ -755,6 +851,7 @@ multi gen-fmt('md', $src, :$output) {
     my $md-dest = make-dest($src, :$output);
     if dest-outdated($md-dest, $src) {
         say "===> Generating ", ~$md-dest.relative($BASE);
+        cleanup-link-dest;
         invoke-raku $src, $md-dest, 'Markdown';
         fixup-fmt('md', $md-dest);
     }
@@ -765,6 +862,7 @@ multi gen-fmt('html', $src, :$output) {
     my $html-dest = make-dest($src, :$output);
     if dest-outdated($html-dest, $src) {
         say "===> Generating ", ~$html-dest.relative($BASE);
+        cleanup-link-dest;
         invoke-raku $src, $html-dest, 'HTML';
         fixup-fmt('html', $html-dest);
     }
@@ -934,8 +1032,11 @@ multi sub MAIN( +@rakudoc-file,
                 IO(Str) :$index-template,
                 #| Defaults to $BASE_DIR/INDEX
                 Str :$index-output,
-                #| Default title, only works for a single input
+                #| Make sure all local link destinations exists
+                Bool :$check-links,
+                #| Default title, only works for a single input rakudoc
                 Str :$title,
+                #| Where to send the output; only works for a single input rakudoc
                 Str :o(:$output) )
 {
     with ($output // $title) {
@@ -953,8 +1054,10 @@ multi sub MAIN( +@rakudoc-file,
     $INDEX-STATE = $index-state // $BASE.add('.gen-doc-index.json');
     $INDEX-FILE = $index-file // $DOC-DIR.add('INDEX.rakudoc');
     $INDEX-TEMPLATE = $index-template // $*PROGRAM.parent(1).add('gen-doc-index.mustache');
+    $LINK-DEST-STATE = $BASE.add('.gen-doc-link-dest.json');
 
     read-doc-index;
+    read-missing-links;
 
     my @psorted = @rakudoc-file.race.map({ [$_, .IO.s] }).sort({ @^b[1] cmp @^a[1] }).map({ .[0] });
     gen-doc(@psorted, :$module, :into{ :$md, :$html }, :$output, :$title);
@@ -964,4 +1067,7 @@ multi sub MAIN( +@rakudoc-file,
         # Use --output for INDEX unless there is an input .rakudoc
         gen-doc(~$INDEX-FILE, :$module, :into{ :$md, :$html }, :output($index-output // $BASE.add('INDEX')));
     }
+
+    check-missing-links if $check-links;
+    save-missing-links;
 }

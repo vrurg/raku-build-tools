@@ -3,6 +3,8 @@
 
 SHELL = /bin/sh
 
+# BASE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+
 NOECHO?=@
 
 RAKU_OPTS=-I.
@@ -15,9 +17,9 @@ MOD_ARCH?=$(MOD_DISTRO).tar.gz
 META?=META6.json
 META_MOD?=$(MAIN_MOD)::META
 META_MOD_FILE?=$(addprefix lib/,$(addsuffix .rakumod,$(subst ::,/,$(META_MOD))))
-BUILD_TOOLD_DIR?=./build-tools
-META_BUILDER?=$(BUILD_TOOLD_DIR)/gen-META.raku
-DOC_BUILDER?=$(BUILD_TOOLD_DIR)/gen-doc.raku
+BUILD_TOOLS_DIR?=$(BASE_DIR)/build-tools
+META_BUILDER?=$(BUILD_TOOLS_DIR)/gen-META.raku
+DOC_BUILDER?=$(BUILD_TOOLS_DIR)/gen-doc.raku
 DOC_BUILD_ARGS?=--module=$(MAIN_MOD)
 
 TEST_JOBS?=$(shell raku -e 'say $*KERNEL.cpu-cores')
@@ -75,8 +77,9 @@ DOCS_SUBDIRS?=$(shell find lib -type d -name '.*' -prune -o -type d -printf '%P\
 MD_SUBDIRS:=$(addprefix $(MD_DIR)/,$(DOCS_SUBDIRS))
 HTML_SUBDIRS:=$(addprefix $(HTML_DIR)/,$(DOCS_SUBDIRS))
 PM_SRC?=$(shell git ls-files lib | xargs grep -l '^=begin')
-POD_SRC?=$(shell git ls-files $(DOC_SRC_DIR) | grep -vi 'readme.rakudoc' | grep -vi 'changelog.rakudoc')
-DOC_SRC?=$(POD_SRC) $(PM_SRC)
+RAKUDOC_EXCLUDE ?= $(shell for d in "$(BASE_DIR)" "$(BUILD_TOOLS_DIR)"; do if [ -e "$$d/.rakudoc-exclude" ]; then echo "$$d/.rakudoc-exclude"; break; fi; done)
+RAKUDOC_SRC?=$(shell git ls-files $(DOC_SRC_DIR) | grep -vif $(RAKUDOC_EXCLUDE) | sort)
+DOC_SRC?=$(RAKUDOC_SRC) $(PM_SRC)
 DOC_DEST?=$(shell git ls-files lib $(DOC_SRC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
 README_SRC?=$(MAIN_MOD_FILE)
 ifneq ("","$(wildcard $(DOC_SRC_DIR)/ChangeLog.rakudoc)")
@@ -88,7 +91,7 @@ export MAIN_MOD META_MOD RAKU_OPTS DOCS_DIR DOC_DIR
 .SUFFXES: .md .rakudoc
 
 vpath %.rakumod $(dir $(PM_SRC))
-vpath %.rakudoc $(dir $(POD_SRC))
+vpath %.rakudoc $(dir $(RAKUDOC_SRC))
 
 .PHONY: all html test author-test release-test is-repo-clean build depends depends-install release meta6_mod meta \
 		archive upload clean install doc md html docs_dirs doc_gen version
@@ -138,6 +141,7 @@ ifdef CHANGELOG_SRC
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --output=./ChangeLog $(CHANGELOG_SRC)
 endif
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --index --index-output=./INDEX
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --check-links
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
 
