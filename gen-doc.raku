@@ -827,7 +827,20 @@ multi sub fixup-fmt('html', IO() $output) {
         }
     }
 
+
     if $modified {
+        with $html.findnodes(q«//head/style»).head {
+            my $style-patch = .cloneNode;
+            $style-patch.appendChild: LibXML::CDATA.new(:content(q:to/CSS-PATCH/));
+                .toc-level-1 .toc-text { padding-left: .5em; }
+                .toc-level-2 .toc-text { padding-left: 1.5em; }
+                .toc-level-3 .toc-text { padding-left: 2.5em; }
+                .toc-level-4 .toc-text { padding-left: 3.5em; }
+                .toc-level-5 .toc-text { padding-left: 4.5em; }
+                #TOC * { border-width: 0; }
+                CSS-PATCH
+            .parent.appendChild: $style-patch;
+        }
         $html.findnodes(q«//head/title»).head.appendText($*DOC-TITLE);
         with $html.findnodes(q«//body//h1[contains(., "rakudoc")]»).head {
             .unbindNode;
