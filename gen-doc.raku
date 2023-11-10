@@ -302,6 +302,9 @@ sub example-text(IO:D $example) {
             @example-lines.push: $line if $in-example;
         }
     }
+    unless @example-lines {
+        warn "No example content found in " ~ $example ~ "; have you forgotten about '#?example' pragma?";
+    }
     @example-lines.join("\n");
 }
 
