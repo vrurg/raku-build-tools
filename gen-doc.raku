@@ -841,6 +841,8 @@ multi sub fixup-fmt('html', IO() $output) {
                 .toc-level-4 .toc-text { padding-left: 4.5em; }
                 .toc-level-5 .toc-text { padding-left: 5.5em; }
                 #TOC * { border-width: 0; }
+                li > p { margin: inherit; }
+                li > .pod-block-code { margin-top: 16px; }
                 CSS-PATCH
             .parent.appendChild: $style-patch;
         }
