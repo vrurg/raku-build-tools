@@ -711,19 +711,22 @@ sub check-missing-links {
             }
         }
 
-        for %LINK-DEST<missing>.sort(*.key) -> (:key($link-path), :value(%details)) {
-            if %registered-dest.EXISTS-KEY($link-path) && !$link-path.IO.e {
-                note "!!! WARNING !!! Missing target file for for local link '", %details<scheme>,
-                     ":", %details<for>, "':\n",
-                     "                destination: ", $link-path.IO.relative($BASE), "\n",
-                     "                   found in: ",
-                    %registered-dest{$link-path}
-                        .keys.sort.kv
-                        .map(-> $idx, $in { $in.IO.relative($BASE).indent($idx ?? 29 !! 0) })
-                        .join("\n");
-            }
-            else {
-                %LINK-DEST<missing>.DELETE-KEY($link-path);
+
+        with %LINK-DEST<missing> -> %missing {
+            for %missing.sort(*.key) -> (:key($link-path), :value(%details)) {
+                if %registered-dest.EXISTS-KEY($link-path) && !$link-path.IO.e {
+                    note "!!! WARNING !!! Missing target file for for local link '", %details<scheme>,
+                        ":", %details<for>, "':\n",
+                        "                destination: ", $link-path.IO.relative($BASE), "\n",
+                        "                   found in: ",
+                        %registered-dest{$link-path}
+                            .keys.sort.kv
+                            .map(-> $idx, $in { $in.IO.relative($BASE).indent($idx ?? 29 !! 0) })
+                            .join("\n");
+                }
+                else {
+                    %missing.DELETE-KEY($link-path);
+                }
             }
         }
     }
