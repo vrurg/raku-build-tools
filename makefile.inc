@@ -3,7 +3,9 @@
 
 SHELL = /bin/sh
 
-# BASE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+ifndef BASE_DIR
+BASE_DIR :::= $(dir $(realpath $(lastword $(MAKEFILE_LIST))/..))
+endif
 
 NOECHO?=@
 
@@ -17,7 +19,7 @@ MOD_ARCH?=$(MOD_DISTRO).tar.gz
 META?=META6.json
 META_MOD?=$(MAIN_MOD)::META
 META_MOD_FILE?=$(addprefix lib/,$(addsuffix .rakumod,$(subst ::,/,$(META_MOD))))
-BUILD_TOOLS_DIR?=$(BASE_DIR)/build-tools
+BUILD_TOOLS_DIR?=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 META_BUILDER?=$(BUILD_TOOLS_DIR)/gen-META.raku
 DOC_BUILDER?=$(BUILD_TOOLS_DIR)/gen-doc.raku
 DOC_BUILD_ARGS?=--module=$(MAIN_MOD)
