@@ -542,13 +542,18 @@ multi sub traverse-ast(Str:D $doc) {
     # Workaround a bug in the DEPARSE implementation where extra newlines are added
     my role ItemDeparse {
         multi method deparse(RakuAST::Doc::Block:D $ast --> Str:D) {
+            my $rakudoc-file = $*RAKUDOC-FILE;
+            CONTROL {
+                when CX::Warn {
+                    note "!!! WARNING from processing ", $rakudoc-file,
+                        "\n### THE AST that caused it:\n", $ast.gist.indent(4),
+                        "\n", .gist;
+                    .resume
+                }
+            }
             nextsame unless $ast.type eq 'item' | 'head';
 
             my $deparsed = callsame();
-            CATCH {
-                note "THROWN FOR ", $ast;
-                note "   para: ", $ast.paragraphs[*-1];
-            }
             my $last-line;
             given $ast.paragraphs[*-1] {
                 when Str {
