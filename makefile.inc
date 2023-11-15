@@ -174,7 +174,7 @@ depends: meta depends-install
 depends-install:
 	$(NOECHO)echo "===> Installing dependencies"
 	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do ($(ZEF) locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; $(ZEF) install $$dep)); done'
-	$(NOECHO)$(ZEF) --deps-only install .
+	$(NOECHO)$(ZEF) install --deps-only --serial .
 
 version: doc meta clean
 #	@git add . && git commit -m 'Minor: version bump'
