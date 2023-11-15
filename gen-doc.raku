@@ -24,6 +24,7 @@ my $MOD-VERSION;
 my $MOD-AUTH;
 my $FORCE = False;
 my $URL;
+my $HTML-CLASS = 'build-tools-gen-doc';
 
 my Lock:D $index-lock .= new;
 my $INDEX-STATE;
@@ -833,26 +834,40 @@ multi sub fixup-fmt('html', IO() $output) {
         }
     }
 
+    my $main-style;
+    unless $html.findnodes(q«//head/style»)
+            .map({ $main-style //= $_; $_ })
+            .grep({ .getAttribute('class') andthen .contains($HTML-CLASS) })
+    {
+        note "NO CUSTOM STYLE FOUND";
+        my $style-patch = $main-style.cloneNode;
+        $style-patch.appendChild: LibXML::CDATA.new(:content(q:to/CSS-PATCH/));
+            .toc-level-1 .toc-text { padding-left: 1.5em; }
+            .toc-level-2 .toc-text { padding-left: 2.5em; }
+            .toc-level-3 .toc-text { padding-left: 3.5em; }
+            .toc-level-4 .toc-text { padding-left: 4.5em; }
+            .toc-level-5 .toc-text { padding-left: 5.5em; }
+            #TOC * { border-width: 0; }
+            li > p { margin: inherit; }
+            li > .pod-block-code { margin-top: 16px; }
+            CSS-PATCH
+        $style-patch.setAttribute("class", "build-tools-gen-doc");
+        $main-style.parent.appendChild: $style-patch;
+        $modified = True;
+    }
+
+    my $title = $html.findnodes(q«//head/title»).head;
+    unless $title.textContent.trim {
+        $title.appendText($*DOC-TITLE);
+        $modified = True;
+    }
+
+    with $html.findnodes(q«//body//h1[contains(., "rakudoc")]»).head {
+        .unbindNode;
+        $modified = True;
+    }
 
     if $modified {
-        with $html.findnodes(q«//head/style»).head {
-            my $style-patch = .cloneNode;
-            $style-patch.appendChild: LibXML::CDATA.new(:content(q:to/CSS-PATCH/));
-                .toc-level-1 .toc-text { padding-left: 1.5em; }
-                .toc-level-2 .toc-text { padding-left: 2.5em; }
-                .toc-level-3 .toc-text { padding-left: 3.5em; }
-                .toc-level-4 .toc-text { padding-left: 4.5em; }
-                .toc-level-5 .toc-text { padding-left: 5.5em; }
-                #TOC * { border-width: 0; }
-                li > p { margin: inherit; }
-                li > .pod-block-code { margin-top: 16px; }
-                CSS-PATCH
-            .parent.appendChild: $style-patch;
-        }
-        $html.findnodes(q«//head/title»).head.appendText($*DOC-TITLE);
-        with $html.findnodes(q«//body//h1[contains(., "rakudoc")]»).head {
-            .unbindNode;
-        }
         $output.spurt: $html.Str(:options(XML_SAVE_AS_HTML));
     }
 }
