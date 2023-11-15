@@ -839,7 +839,6 @@ multi sub fixup-fmt('html', IO() $output) {
             .map({ $main-style //= $_; $_ })
             .grep({ .getAttribute('class') andthen .contains($HTML-CLASS) })
     {
-        note "NO CUSTOM STYLE FOUND";
         my $style-patch = $main-style.cloneNode;
         $style-patch.appendChild: LibXML::CDATA.new(:content(q:to/CSS-PATCH/));
             .toc-level-1 .toc-text { padding-left: 1.5em; }
