@@ -12,7 +12,7 @@ on:
       zef-version:
         required: false
         type: string
-        default: 'v0.14.2'
+        default: 'v0.21.0'
       with-openssl:
         required: false
         type: boolean
