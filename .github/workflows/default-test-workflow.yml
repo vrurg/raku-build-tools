@@ -48,9 +48,8 @@ jobs:
       - uses: nick-fields/retry@v2
         name: Install new zef ${{ inputs.zef-version }}
         with:
-          timeout_minutes: 10
+          timeout_minutes: 4
           max_attempts: 3
-          retry_on: error
           command: raku -I./zef zef/bin/zef install ./zef
       - uses: actions/checkout@v3
         name: Checkout repository
