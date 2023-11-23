@@ -75,7 +75,7 @@ jobs:
           timeout_minutes: 10
           max_attempts: 3
           retry_on: error
-          command: zef install ./main --deps-only --test-depends --/test --/rea --p6c --cpan
+          command: zef install ./main --deps-only --test-depends --/test
       - uses: nick-fields/retry@v2
         name: Setup App::Prove6
         with:

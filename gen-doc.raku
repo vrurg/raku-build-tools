@@ -383,6 +383,8 @@ multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
 
     my $meta = $markup.meta.head // "";
 
+    nextsame if $meta.starts-with('#');
+
     unless $meta ~~ /^ \w+ ":"/ {
         # XXX Temporary, fix examples link
         # Skip if starts with scheme
