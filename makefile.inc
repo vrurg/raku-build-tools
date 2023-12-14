@@ -4,7 +4,7 @@
 SHELL = /bin/sh
 
 ifndef BASE_DIR
-BASE_DIR :::= $(dir $(realpath $(lastword $(MAKEFILE_LIST))/..))
+BASE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))/..))
 endif
 
 NOECHO?=@
