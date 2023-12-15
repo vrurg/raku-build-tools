@@ -1,7 +1,7 @@
 #!/usr/bin/env raku
 use v6.e.PREVIEW;
 use experimental :rakuast;
-use Async::Workers;
+use Async::Workers:auth<zef:vrurg>:api<0.3.0+>;
 use Cmark::Native;
 use Cmark;
 use Digest::SHA256::Native;
