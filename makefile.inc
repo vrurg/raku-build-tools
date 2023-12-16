@@ -59,7 +59,7 @@ DIST_FILES:=$(shell git ls-files -z)
 CLEAN_FILES?=$(MOD_NAME_PFX)-v*.tar.gz \
 			META6.json.out
 
-DEPENDECIES = fez Async::Workers Pod::To::Markdown App::Prove6 URI LibXML \
+DEPENDECIES = fez "Async::Workers:api<0.3.0+>" Pod::To::Markdown App::Prove6 URI LibXML \
 		      Digest::SHA256::Native OO::Monitors Template::Mustache JSON::Fast \
 			  Cmark
 
