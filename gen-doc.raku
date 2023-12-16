@@ -1,7 +1,7 @@
 #!/usr/bin/env raku
 use v6.e.PREVIEW;
 use experimental :rakuast;
-use Async::Workers;
+use Async::Workers:auth<zef:vrurg>:api<0.3.0+>;
 use Cmark::Native;
 use Cmark;
 use Digest::SHA256::Native;
@@ -41,6 +41,8 @@ my $link-dest-lock = Lock.new;
 
 $*OUT.out-buffer = 0;
 $*ERR.out-buffer = 0;
+
+my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
 
 grammar MyPOD {
     token TOP {
@@ -168,12 +170,14 @@ class MyPOD-Actions {
 }
 
 my regex RxMod {
-    $<module>=[ '..::'? [ <.alpha> <.alnum>* ] ** 1..* % '::' ]
+    ^
+    $<module>=[ '..::'? [ <.alpha> <[\w-]>* ] ** 1..* % '::' ]
     [
         [ ':auth<' $<auth>=[ .*? <?before '>'> ] '>' ]
         | [ ':ver<' $<ver>=[ .*? <?before '>'> ] '>' ]
     ]*
     $<smile>=[ ':' D | U | _ ]?
+    $
 }
 
 sub tr-note(*@msg) {
@@ -377,11 +381,12 @@ sub update-example($ex-para, IO() $example) {
 proto sub ast-node(|) {*}
 
 multi sub ast-node(RakuAST::Doc::Markup $markup where *.letter eq 'L') {
-
     my $ctx = ASTLink.new;
     enter-ast-ctx $markup, $ctx;
 
     my $meta = $markup.meta.head // "";
+
+    nextsame if $meta.starts-with('#');
 
     unless $meta ~~ /^ \w+ ":"/ {
         # XXX Temporary, fix examples link
@@ -619,7 +624,7 @@ my $mdl = Lock.new;
 sub make-dest($src is copy, :$base is copy = $BASE, :$fmt = $*DOC-OUT-FMT, :$ext = $*DOC-OUT-EXT, :$output) {
     $mdl.protect: {
         if $VERBOSE {
-            $src = $src.absolute;
+            $src = $src.IO.absolute;
             $base = $base.absolute;
             my @d = $*SPEC.splitdir($src.IO.relative($base))[1 ..*];
             note "___ from $src base:$base ---> ", ~$src.IO.relative($base);
@@ -983,16 +988,16 @@ sub refresh-index {
                         %DOC-IDX
                             .grep({ .value<index> // True })
                             .sort(*.value)
-                            .map({ %( doc-reference => .key, doc-title => .value<doc-title> ) });
+                            .map({ %( doc-reference => .key, doc-title => ( .value<doc-title> // "***NO TITLE***" ) ) });
 
                 my $mustache-logger = Template::Mustache::Logger.new: :level('Warn');
                 for <Warn Error Fatal> -> $level {
                     $mustache-logger.routines{$level} = -> $lvl, $ex {
-                        note "!!! Template $level: ", $ex.message;
+                        note "=== ERROR BUILDING INDEX === Template $level: ", $ex.message;
                     };
                 }
                 $doch.spurt:
-                    Template::Mustache.render($INDEX-TEMPLATE, %tpl-data);
+                    Template::Mustache.render($INDEX-TEMPLATE, %tpl-data, :logger($mustache-logger));
             }
             else -> $failure {
                 $failure.exception.rethrow
@@ -1006,13 +1011,39 @@ sub make-doc-reference(IO() $doc-file) {
     $*SPEC.splitdir( $doc-file.relative($DOC-DIR).IO.extension("", :$parts) ).join("::");
 }
 
+my %running;
+my Lock:D $running-lock .= new;
+
+sub start-worker(Str:D $what, Str:D $note) {
+    $running-lock.protect: {
+        die "Duplicate worker for '", $what, "($_)'?" with %running{$what};
+        %running{$what} = $note;
+    }
+}
+
+sub finish-worker(Str:D $what) {
+    $running-lock.protect: {
+        die "Can't finish '$what' because it wasn't starting" unless %running{$what}:exists;
+        %running{$what}:delete;
+    }
+}
+
+sub report-workers {
+    $running-lock.protect: {
+        say "==> Running tasks              : ", %running.sort.map({ .key ~ "(" ~ .value ~ ")" }).join(", "), "\n",
+            "    Current Asyn::Workers jobs : ", $wm.current-jobs.join(", ");
+    }
+}
+
 sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
     $MAIN-MOD = $_ with $module;
     prepare-module;
-    my $wm = Async::Workers.new(:max-workers($*KERNEL.cpu-cores));
     for @pod-files -> $pod-file {
         note "??? $pod-file" if $VERBOSE;
-        $wm.do-async: {
+        $wm.do-async: :name("gen-doc:$pod-file"), {
+            my $work-name = "gen-doc:$pod-file";
+            start-worker $work-name, "";
+            LEAVE { finish-worker($work-name); };
             my $*RAKUDOC-FILE = $pod-file;
             my $*DOC-OUTPUT := $output;
             my $md-sample = make-dest($pod-file, :fmt<md>, :ext<md>).parent(1).resolve;
@@ -1037,7 +1068,10 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
 
             for %into.keys -> $fmt {
                 next unless %into{$fmt};
-                $wm.do-async: {
+                $wm.do-async: :name("fmt-$fmt:$pod-file"), {
+                    my $work-name = "$fmt:$pod-file";
+                    start-worker $work-name, "";
+                    LEAVE { finish-worker($work-name) };
                     my $*RAKUDOC-FILE = $pod-file;
                     my $*DOC-OUTPUT := $output;
                     my $*DOC-OUT-FMT = $fmt;
@@ -1048,8 +1082,13 @@ sub gen-doc(+@pod-files, :$module, :$output, :$title, :%into --> Nil) {
             }
         }
     }
+    start react {
+        whenever Supply.interval(30, 180) {
+            report-workers;
+            # note "Queue: ", $wm.queued, ", running: ", $wm.running;
+        }
+    };
     await $wm;
-    $wm.shutdown;
 
     save-doc-index;
 }
@@ -1110,4 +1149,6 @@ multi sub MAIN( +@rakudoc-file,
 
     check-missing-links if $check-links;
     save-missing-links;
+
+    $wm.shutdown;
 }

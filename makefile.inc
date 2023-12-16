@@ -4,7 +4,7 @@
 SHELL = /bin/sh
 
 ifndef BASE_DIR
-BASE_DIR :::= $(dir $(realpath $(lastword $(MAKEFILE_LIST))/..))
+BASE_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))/..))
 endif
 
 NOECHO?=@
@@ -136,13 +136,19 @@ $(MD_SUBDIRS) $(HTML_SUBDIRS):
 	$(NOECHO)mkdir -p $@
 
 doc_gen: $(DOC_BUILDER)
-	$(NOECHO)echo "===> Updating documentation sources"
+	$(NOECHO)echo "===> Updating documentation"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html $(DOC_SRC)
-	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --title='README' --output=./README $(README_SRC)
+	$(NOECHO)if [ -f $(README_SRC) ]; then \
+				echo "===> Updating documentation: $(README_SRC)"; \
+				raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --title='README' --output=./README $(README_SRC); \
+			fi
 ifdef CHANGELOG_SRC
+	$(NOECHO)echo "===> Updating documentation: CHANGELOG"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --output=./ChangeLog $(CHANGELOG_SRC)
 endif
+	$(NOECHO)echo "===> Updating documentation: INDEX"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --index --index-output=./INDEX
+	$(NOECHO)echo "===> Updating documentation: CHECK LINKS"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --check-links
 
 #md: ./README.md $(addprefix $(MD_DIR)/,$(patsubst %.rakudoc,%.md,$(patsubst %.rakumod,%.md,$(DOC_DEST))))
