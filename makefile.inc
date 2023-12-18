@@ -83,7 +83,9 @@ RAKUDOC_EXCLUDE ?= $(shell for d in "$(BASE_DIR)" "$(BUILD_TOOLS_DIR)"; do if [ 
 RAKUDOC_SRC?=$(shell git ls-files $(DOC_SRC_DIR) | grep -vif $(RAKUDOC_EXCLUDE) | sort)
 DOC_SRC?=$(RAKUDOC_SRC) $(PM_SRC)
 DOC_DEST?=$(shell git ls-files lib $(DOC_SRC_DIR) | xargs grep -l '^=begin' | sed 's,^[^/]*/,,')
-README_SRC?=$(MAIN_MOD_FILE)
+ifneq ("","$(wildcard $(MAIN_MOD_FILE))")
+	README_SRC?=$(MAIN_MOD_FILE)
+endif
 ifneq ("","$(wildcard $(DOC_SRC_DIR)/ChangeLog.rakudoc)")
 	CHANGELOG_SRC?=$(DOC_SRC_DIR)/ChangeLog.rakudoc
 endif
@@ -138,10 +140,10 @@ $(MD_SUBDIRS) $(HTML_SUBDIRS):
 doc_gen: $(DOC_BUILDER)
 	$(NOECHO)echo "===> Updating documentation"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html $(DOC_SRC)
-	$(NOECHO)if [ -f $(README_SRC) ]; then \
-				echo "===> Updating documentation: $(README_SRC)"; \
-				raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --title='README' --output=./README $(README_SRC); \
-			fi
+ifdef README_SRC
+	$(NOECHO)echo "===> Updating documentation: README"
+	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --title='README' --output=./README $(README_SRC)
+endif
 ifdef CHANGELOG_SRC
 	$(NOECHO)echo "===> Updating documentation: CHANGELOG"
 	$(NOECHO)raku $(RAKU_OPTS) $(DOC_BUILDER) $(DOC_BUILD_ARGS) --md --html --output=./ChangeLog $(CHANGELOG_SRC)
@@ -179,7 +181,7 @@ depends: meta depends-install
 
 depends-install:
 	$(NOECHO)echo "===> Installing dependencies"
-	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do ($(ZEF) locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; $(ZEF) install $$dep)); done'
+	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do ($(ZEF) locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; $(ZEF) install $$dep --serial)); done'
 	$(NOECHO)$(ZEF) install --deps-only --serial .
 
 version: doc meta clean
