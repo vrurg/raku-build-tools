@@ -39,18 +39,18 @@ jobs:
         working-directory: /
         name: Setup OpenSSL for macOS
         run: brew install openssl
-      - uses: actions/checkout@v3
-        name: Checkout zef
-        with:
-          repository: 'ugexe/zef'
-          ref: ${{ inputs.zef-version }}
-          path: 'zef'
-      - uses: nick-fields/retry@v2
-        name: Install new zef ${{ inputs.zef-version }}
-        with:
-          timeout_minutes: 4
-          max_attempts: 3
-          command: raku --ll-exception -I./zef zef/bin/zef install ./zef
+#      - uses: actions/checkout@v3
+#        name: Checkout zef
+#        with:
+#          repository: 'ugexe/zef'
+#          ref: ${{ inputs.zef-version }}
+#          path: 'zef'
+#      - uses: nick-fields/retry@v2
+#        name: Install new zef ${{ inputs.zef-version }}
+#        with:
+#          timeout_minutes: 4
+#          max_attempts: 3
+#          command: raku --ll-exception -I./zef zef/bin/zef install ./zef
       - uses: actions/checkout@v3
         name: Checkout repository
         with:
