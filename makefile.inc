@@ -182,7 +182,7 @@ depends: meta depends-install
 depends-install:
 	$(NOECHO)echo "===> Installing dependencies"
 	$(NOECHO)/bin/sh -c 'for dep in $(DEPENDECIES); do ($(ZEF) locate $$dep 2>&1 >/dev/null || (echo "++++ Installing $$dep"; $(ZEF) install $$dep --serial)); done'
-	$(NOECHO)$(ZEF) install --deps-only --serial .
+	$(NOECHO)$(ZEF) install --deps-only --test-depends --serial .
 
 version: doc meta clean
 #	@git add . && git commit -m 'Minor: version bump'
